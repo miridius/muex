@@ -40,6 +40,29 @@ defmodule Muex.DependencyAnalyzerTest do
 
       refute Map.has_key?(result, :ElixirMyAppAliased)
     end
+
+    @tag :tmp_dir
+    test "keys each module of a multi-alias by its full module name", %{tmp_dir: tmp_dir} do
+      test_file = Path.join(tmp_dir, "multi_alias_test.exs")
+
+      File.write!(test_file, """
+      defmodule MultiAliasTest do
+        use ExUnit.Case
+        alias MyApp.{First, Second.Nested}
+
+        test "calls" do
+          First.call()
+          Nested.call()
+        end
+      end
+      """)
+
+      result = DependencyAnalyzer.analyze(tmp_dir)
+
+      for module <- [MyApp.First, MyApp.Second.Nested] do
+        assert Map.get(result, module) == [test_file]
+      end
+    end
   end
 
   describe "get_dependent_tests/2" do

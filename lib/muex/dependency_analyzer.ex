@@ -112,6 +112,16 @@ defmodule Muex.DependencyAnalyzer do
   end
 
   # Extract module names from different AST node patterns
+
+  # alias MyApp.{Foo, Bar.Baz}
+  defp extract_module_from_node(
+         {:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, children} | _opts]}
+       ) do
+    for {:__aliases__, _, parts} <- children,
+        into: MapSet.new(),
+        do: module_from_parts(base ++ parts)
+  end
+
   defp extract_module_from_node(node) do
     case node do
       # alias MyModule
