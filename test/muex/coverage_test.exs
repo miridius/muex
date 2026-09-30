@@ -76,4 +76,52 @@ defmodule Muex.CoverageTest do
       assert Coverage.tests_for(index, "lib/a.ex", 11) == :unknown
     end
   end
+
+  describe "collect/3" do
+    # Exports are written by a separate VM, so the fixture module is never
+    # cover-compiled in this one: `collect/3` sees it only as imported data,
+    # as it does for a project's modules during a real run.
+    @tag :tmp_dir
+    test "credits each test file with only the lines it executed", %{tmp_dir: tmp_dir} do
+      source = Path.join(tmp_dir, "muex_cov_fixture.erl")
+
+      File.write!(source, """
+      -module(muex_cov_fixture).
+      -export([a/0, b/0]).
+      a() ->
+          a.
+      b() ->
+          b.
+      """)
+
+      a_export = Path.join(tmp_dir, "a.coverdata")
+      b_export = Path.join(tmp_dir, "b.coverdata")
+
+      script = """
+      [source, a_export, b_export] = System.argv()
+      {:ok, _} = :cover.start()
+      {:ok, mod} = :cover.compile_module(String.to_charlist(source))
+      mod.a()
+      :ok = :cover.export(String.to_charlist(a_export), mod)
+      :ok = :cover.reset(mod)
+      mod.b()
+      :ok = :cover.export(String.to_charlist(b_export), mod)
+      """
+
+      {_, 0} =
+        System.cmd("elixir", ["-e", script, source, a_export, b_export], stderr_to_stdout: true)
+
+      exports = %{"a_test.exs" => a_export, "b_test.exs" => b_export}
+
+      index =
+        Coverage.collect(
+          ["a_test.exs", "b_test.exs"],
+          %{"muex_cov_fixture.erl" => :muex_cov_fixture},
+          run: fn test_file, _cd -> {:ok, Map.fetch!(exports, test_file)} end
+        )
+
+      assert Coverage.tests_for(index, "muex_cov_fixture.erl", 4) == {:covered, ["a_test.exs"]}
+      assert Coverage.tests_for(index, "muex_cov_fixture.erl", 6) == {:covered, ["b_test.exs"]}
+    end
+  end
 end

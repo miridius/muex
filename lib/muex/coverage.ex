@@ -80,16 +80,19 @@ defmodule Muex.Coverage do
   in a subprocess, then analyses each module in `file_to_module` and attributes
   its executed lines to that test file. Returns a `t()` index.
 
-  Options: `:cd` (project root, default `File.cwd!/0`).
+  Options: `:cd` (project root, default `File.cwd!/0`); `:run`, a function
+  `(test_file, cd) -> {:ok, coverdata_path} | :error` that produces a test
+  file's coverage export (default: the `mix test` subprocess above).
   """
   @spec collect([Path.t()], %{Path.t() => module()}, keyword()) :: t()
   def collect(test_files, file_to_module, opts \\ []) do
     cd = Keyword.get(opts, :cd, File.cwd!())
+    run = Keyword.get(opts, :run, &run_with_coverage/2)
     module_to_path = invert(file_to_module)
     ensure_cover_started()
 
     Enum.reduce(test_files, new(), fn test_file, index ->
-      case run_with_coverage(test_file, cd) do
+      case run.(test_file, cd) do
         {:ok, coverdata} -> merge_coverage(index, test_file, coverdata, module_to_path)
         :error -> index
       end
@@ -127,8 +130,12 @@ defmodule Muex.Coverage do
     _ -> :error
   end
 
+  # `:cover.reset/0` resets only cover-compiled modules and leaves the data of
+  # imported ones in place, so each import would add to the previous test
+  # file's data. `:cover.reset/1` clears an imported module's data; it returns
+  # an error for a module with no data yet, which is fine to ignore.
   defp merge_coverage(index, test_file, coverdata, module_to_path) do
-    :cover.reset()
+    Enum.each(Map.keys(module_to_path), &:cover.reset/1)
     :cover.import(String.to_charlist(coverdata))
 
     Enum.reduce(module_to_path, index, fn {module, path}, idx ->
