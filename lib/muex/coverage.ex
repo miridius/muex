@@ -82,20 +82,29 @@ defmodule Muex.Coverage do
 
   Options: `:cd` (project root, default `File.cwd!/0`); `:run`, a function
   `(test_file, cd) -> {:ok, coverdata_path} | :error` that produces a test
-  file's coverage export (default: the `mix test` subprocess above).
+  file's coverage export (default: the `mix test` subprocess above);
+  `:concurrency`, how many of those run at once (default
+  `System.schedulers_online/0`).
   """
   @spec collect([Path.t()], %{Path.t() => module()}, keyword()) :: t()
   def collect(test_files, file_to_module, opts \\ []) do
     cd = Keyword.get(opts, :cd, File.cwd!())
     run = Keyword.get(opts, :run, &run_with_coverage/2)
+    concurrency = Keyword.get(opts, :concurrency, System.schedulers_online())
     module_to_path = invert(file_to_module)
     ensure_cover_started()
 
-    Enum.reduce(test_files, new(), fn test_file, index ->
-      case run.(test_file, cd) do
-        {:ok, coverdata} -> merge_coverage(index, test_file, coverdata, module_to_path)
-        :error -> index
-      end
+    # The test files run side by side, each in its own VM. Their exports are
+    # merged one at a time: `:cover` is one server per node, and each merge
+    # resets and re-imports the same modules.
+    test_files
+    |> Task.async_stream(&{&1, run.(&1, cd)}, max_concurrency: concurrency, timeout: :infinity)
+    |> Enum.reduce(new(), fn
+      {:ok, {test_file, {:ok, coverdata}}}, index ->
+        merge_coverage(index, test_file, coverdata, module_to_path)
+
+      {:ok, {_test_file, :error}}, index ->
+        index
     end)
   end
 

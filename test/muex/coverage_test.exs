@@ -123,5 +123,35 @@ defmodule Muex.CoverageTest do
       assert Coverage.tests_for(index, "muex_cov_fixture.erl", 4) == {:covered, ["a_test.exs"]}
       assert Coverage.tests_for(index, "muex_cov_fixture.erl", 6) == {:covered, ["b_test.exs"]}
     end
+
+    test "runs up to :concurrency test files at once" do
+      test_pid = self()
+
+      run = fn test_file, _cd ->
+        send(test_pid, {:running, test_file, self()})
+
+        receive do
+          :go -> :error
+        end
+      end
+
+      collecting =
+        Task.async(fn ->
+          Coverage.collect(["a_test.exs", "b_test.exs", "c_test.exs"], %{},
+            run: run,
+            concurrency: 2
+          )
+        end)
+
+      assert_receive {:running, "a_test.exs", a}
+      assert_receive {:running, "b_test.exs", b}
+      refute_receive {:running, "c_test.exs", _}
+
+      send(a, :go)
+      assert_receive {:running, "c_test.exs", c}
+
+      Enum.each([b, c], &send(&1, :go))
+      assert Task.await(collecting) == Coverage.new()
+    end
   end
 end
