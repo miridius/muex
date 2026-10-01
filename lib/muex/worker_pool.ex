@@ -2,17 +2,16 @@ defmodule Muex.WorkerPool do
   @moduledoc """
   Manages a pool of workers for parallel mutation testing across all files.
 
-  Uses a global queue of mutations with per-file locking to maximize
-  cross-file parallelism while preventing concurrent modifications to the
-  same source file. Each worker operates in an isolated sandbox directory
-  so that parallel `mix test` invocations don't see each other's mutations.
+  Uses a global queue of mutations. Each worker operates in an isolated
+  sandbox directory, with its own copy of the mutated file and its own build
+  of that file's app, so that parallel `mix test` invocations don't see each
+  other's mutations.
 
   ## Scheduling strategy
 
   When a worker slot becomes available, the pool picks the next mutation
-  from any file that is not currently locked. This means mutations
-  targeting different files run in true parallel, while mutations
-  targeting the same file are serialized.
+  from the file with the most pending mutations. Mutations run in parallel
+  whether they target different files or the same one.
   """
 
   use GenServer
@@ -23,25 +22,10 @@ defmodule Muex.WorkerPool do
 
   @default_max_workers 4
 
-  # `State` legitimately wraps opaque values (`MapSet`, `:queue`). Across the
-  # self-recursive `schedule_workers/1` call, Dialyzer cannot keep a consistent
-  # view of those fields and reports an opacity violation in either direction
-  # (call_with_opaque / call_without_opaque) regardless of how the struct is
-  # typed. The code uses only the public MapSet/:queue APIs, so disable opacity
-  # checking for just these two scheduler functions.
-  @dialyzer {:no_opaque, [schedule_workers: 1, maybe_finish_or_schedule: 1]}
-
   defmodule State do
     @moduledoc false
 
-    @typedoc """
-    Internal worker-pool state.
-
-    `locked_files` and `available_sandboxes` hold the opaque `MapSet.t/0` and
-    `:queue.queue/0`. Opacity checking is disabled for the recursive scheduler
-    functions (see the `@dialyzer` attribute on the parent module) because
-    Dialyzer cannot keep a consistent opaque view of them across that recursion.
-    """
+    @typedoc "Internal worker-pool state."
     @type t :: %__MODULE__{
             max_workers: non_neg_integer(),
             caller: GenServer.from() | nil,
@@ -50,7 +34,6 @@ defmodule Muex.WorkerPool do
             project_root: Path.t() | nil,
             test_paths: [Path.t()],
             pending_by_file: map(),
-            locked_files: MapSet.t(),
             active_workers: map(),
             monitor_to_worker: map(),
             results: [map()],
@@ -75,8 +58,6 @@ defmodule Muex.WorkerPool do
       test_paths: ["test"],
       # Map of file_path => :queue.queue(mutation)
       pending_by_file: %{},
-      # MapSet of file paths currently being mutated
-      locked_files: MapSet.new(),
       # Map of worker_ref => {mutation, file_path, sandbox_idx, monitor_ref}
       active_workers: %{},
       # Reverse map: monitor_ref => worker_ref (for :DOWN lookup)
@@ -130,9 +111,9 @@ defmodule Muex.WorkerPool do
   @doc """
   Runs all mutations through the worker pool.
 
-  Accepts the full set of mutations across all files. Mutations targeting
-  different files run in parallel (up to `max_workers`); mutations targeting
-  the same file are serialized automatically.
+  Accepts the full set of mutations across all files. Mutations run in
+  parallel (up to `max_workers`), whether they target different files or the
+  same one.
 
   ## Parameters
 
@@ -226,7 +207,6 @@ defmodule Muex.WorkerPool do
           results: [],
           total_mutations: length(mutations),
           completed_mutations: 0,
-          locked_files: MapSet.new(),
           active_workers: %{},
           monitor_to_worker: %{},
           stop_reason: nil
@@ -237,11 +217,10 @@ defmodule Muex.WorkerPool do
       Sandbox.check_targets!(project_root, Map.keys(pending_by_file))
       selections = select_all!(prepared, mutations)
 
-      # Mutants of one file run one at a time (the per-file lock below), so
-      # no more than one sandbox per file can ever be busy. Build no more than
-      # that: an umbrella sandbox costs a whole-umbrella compile to warm.
+      # No more sandboxes than mutants could ever be busy at once: an umbrella
+      # sandbox costs a whole-umbrella compile to warm.
       sandboxes =
-        Sandbox.create_pool(min(state.max_workers, map_size(pending_by_file)),
+        Sandbox.create_pool(min(state.max_workers, length(mutations)),
           project_root: project_root,
           test_paths: test_paths,
           mirror: mirror
@@ -375,8 +354,7 @@ defmodule Muex.WorkerPool do
 
         new_monitor_map = Map.delete(state.monitor_to_worker, monitor_ref)
 
-        # Unlock the file and return the sandbox to the available pool
-        new_locked = MapSet.delete(state.locked_files, file_path)
+        # Return the sandbox to the available pool
         new_available = :queue.in(sandbox_idx, state.available_sandboxes)
 
         new_pending = cleanup_pending(state.pending_by_file, file_path)
@@ -385,7 +363,6 @@ defmodule Muex.WorkerPool do
           state
           | active_workers: new_active,
             monitor_to_worker: new_monitor_map,
-            locked_files: new_locked,
             available_sandboxes: new_available,
             pending_by_file: new_pending
         }
@@ -432,7 +409,6 @@ defmodule Muex.WorkerPool do
         new_active = Map.delete(state.active_workers, worker_ref)
         new_monitor_map = Map.delete(state.monitor_to_worker, monitor_ref)
         new_completed = state.completed_mutations + 1
-        new_locked = MapSet.delete(state.locked_files, file_path)
         new_available = :queue.in(sandbox_idx, state.available_sandboxes)
 
         new_pending = cleanup_pending(state.pending_by_file, file_path)
@@ -443,7 +419,6 @@ defmodule Muex.WorkerPool do
             monitor_to_worker: new_monitor_map,
             results: [result | state.results],
             completed_mutations: new_completed,
-            locked_files: new_locked,
             available_sandboxes: new_available,
             pending_by_file: new_pending
         }
@@ -465,7 +440,7 @@ defmodule Muex.WorkerPool do
 
   # -- Scheduling --
 
-  # Try to fill all available worker slots with mutations from unlocked files.
+  # Try to fill all available worker slots with pending mutations.
   @spec schedule_workers(State.t()) :: State.t()
   defp schedule_workers(state) do
     available_slots = state.max_workers - map_size(state.active_workers)
@@ -498,7 +473,6 @@ defmodule Muex.WorkerPool do
           new_state = %{
             state
             | pending_by_file: new_pending,
-              locked_files: MapSet.put(state.locked_files, file_path),
               active_workers:
                 Map.put(
                   state.active_workers,
@@ -513,7 +487,7 @@ defmodule Muex.WorkerPool do
           schedule_workers(new_state)
 
         :none ->
-          # No unlocked files with pending mutations — wait for a worker to finish
+          # No pending mutations — wait for a worker to finish
           state
       end
     else
@@ -521,17 +495,14 @@ defmodule Muex.WorkerPool do
     end
   end
 
-  # Find the next mutation from a file that is NOT currently locked.
-  # Prioritizes files with the most pending mutations for better throughput.
+  # Find the next mutation, from the file with the most pending mutations.
   defp pick_next_mutation(state) do
-    unlocked_files =
+    files =
       state.pending_by_file
-      |> Enum.reject(fn {file_path, queue} ->
-        MapSet.member?(state.locked_files, file_path) or :queue.is_empty(queue)
-      end)
+      |> Enum.reject(fn {_file_path, queue} -> :queue.is_empty(queue) end)
       |> Enum.sort_by(fn {_path, queue} -> :queue.len(queue) end, :desc)
 
-    case unlocked_files do
+    case files do
       [{file_path, queue} | _] ->
         {{:value, mutation}, new_queue} = :queue.out(queue)
         new_pending = Map.put(state.pending_by_file, file_path, new_queue)

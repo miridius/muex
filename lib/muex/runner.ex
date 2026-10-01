@@ -16,8 +16,8 @@ defmodule Muex.Runner do
   @doc """
   Runs all mutations in parallel using a global worker pool with sandbox isolation.
 
-  Mutations targeting different files run concurrently. Mutations targeting the
-  same file are serialized via per-file locking.
+  Mutations run concurrently, whether they target different files or the same
+  one.
 
   ## Parameters
 

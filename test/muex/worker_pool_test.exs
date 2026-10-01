@@ -90,6 +90,19 @@ defmodule Muex.WorkerPoolTest do
       assert error =~ ":unparse_gave_up"
     end
 
+    # Each worker has its own sandbox, with its own copy of the file.
+    @tag :tmp_dir
+    test "runs mutants of the same file at the same time", %{tmp_dir: tmp_dir} do
+      Process.register(self(), __MODULE__.BlockingAdapter)
+      run = Task.async(fn -> run_with_adapter(tmp_dir, __MODULE__.BlockingAdapter, 2, 2) end)
+
+      assert_receive {:unparsing, first}
+      assert_receive {:unparsing, second}
+      Enum.each([first, second], &send(&1, :go))
+
+      assert [%{result: :invalid}, %{result: :invalid}] = Task.await(run)
+    end
+
     @tag :tmp_dir
     test "refuses an umbrella target outside apps/", %{tmp_dir: tmp_dir} do
       File.mkdir_p!(Path.join(tmp_dir, "apps"))
@@ -126,7 +139,21 @@ defmodule Muex.WorkerPoolTest do
     def unparse(_ast), do: exit(:unparse_gave_up)
   end
 
-  defp run_one_with_adapter(tmp_dir, adapter) do
+  # Tells the test process (registered under this module's name) that a worker
+  # has started, and holds that worker until the test lets it go.
+  defmodule BlockingAdapter do
+    def unparse(_ast) do
+      send(__MODULE__, {:unparsing, self()})
+
+      receive do
+        :go -> exit(:released)
+      end
+    end
+  end
+
+  defp run_one_with_adapter(tmp_dir, adapter), do: run_with_adapter(tmp_dir, adapter, 1, 1)
+
+  defp run_with_adapter(tmp_dir, adapter, mutant_count, max_workers) do
     File.mkdir_p!(Path.join(tmp_dir, "lib"))
     File.mkdir_p!(Path.join(tmp_dir, "test"))
 
@@ -140,17 +167,19 @@ defmodule Muex.WorkerPoolTest do
     File.write!(Path.join(tmp_dir, "lib/crash.ex"), "defmodule Crash do\n  def one, do: 1\nend\n")
     File.write!(Path.join(tmp_dir, "test/crash_test.exs"), "")
 
-    {:ok, pool} = WorkerPool.start_link(max_workers: 1)
+    {:ok, pool} = WorkerPool.start_link(max_workers: max_workers)
     {:ok, ast} = Code.string_to_quoted(File.read!(Path.join(tmp_dir, "lib/crash.ex")))
     file_entry = %{path: "lib/crash.ex", ast: ast, module_name: Crash}
 
-    [mutation | _] =
-      Muex.Mutator.walk(ast, [Muex.Mutator.Literal], %{file: "lib/crash.ex"})
+    mutations =
+      ast
+      |> Muex.Mutator.walk([Muex.Mutator.Literal], %{file: "lib/crash.ex"})
+      |> Enum.take(mutant_count)
 
     results =
       WorkerPool.run_mutations(
         pool,
-        [mutation],
+        mutations,
         %{"lib/crash.ex" => file_entry},
         adapter,
         %{},
