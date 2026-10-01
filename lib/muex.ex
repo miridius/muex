@@ -268,7 +268,11 @@ defmodule Muex do
        ) do
     test_files = Muex.Config.expand_test_paths(test_paths)
     log("Collecting coverage from #{length(test_files)} test file(s)...", config.verbose)
-    Muex.Coverage.collect(test_files, file_to_module, cd: config.project_root)
+
+    Muex.Coverage.collect(test_files, file_to_module,
+      cd: config.project_root,
+      concurrency: config.concurrency
+    )
   end
 
   defp run_mutations(config, files, all_mutations, equivalent_results) do
