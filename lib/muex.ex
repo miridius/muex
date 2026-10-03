@@ -117,6 +117,7 @@ defmodule Muex do
   defp do_run(config, all_files) do
     with {:ok, changed} <- resolve_changed(config),
          files = all_files |> maybe_filter(config) |> scope_to_changed_files(changed),
+         :ok <- check_fully_staged(files, config),
          {:ok, ignores} <- Muex.Ignore.directives(files, config.project_root) do
       log("Generating mutations...", config.verbose)
 
@@ -166,6 +167,31 @@ defmodule Muex do
 
       {:error, reason} ->
         {:error, "git diff against #{ref} failed: #{reason}"}
+    end
+  end
+
+  # The files on disk are what gets mutated and tested, but --staged takes its
+  # lines from the index. A file with unstaged edits on top of its staged ones
+  # would be tested as it is on disk, not as it will be committed, and its staged
+  # line numbers may not match the disk, so the run is refused.
+  defp check_fully_staged(_files, %Muex.Config{staged: false}), do: :ok
+
+  defp check_fully_staged(files, config) do
+    case Muex.GitDiff.changed_unstaged(cd: config.project_root) do
+      {:ok, unstaged} ->
+        case for file <- files, Map.has_key?(unstaged, Path.expand(file.path)), do: file.path do
+          [] ->
+            :ok
+
+          partial ->
+            {:error,
+             "--staged: these files have unstaged changes on top of their staged ones, " <>
+               "so they cannot be tested as they will be committed; stage or stash them: " <>
+               Enum.join(Enum.sort(partial), ", ")}
+        end
+
+      {:error, reason} ->
+        {:error, "git diff failed: #{reason}"}
     end
   end
 
@@ -292,7 +318,8 @@ defmodule Muex do
 
     Muex.Coverage.collect(test_files, file_to_module,
       cd: config.project_root,
-      concurrency: config.concurrency
+      concurrency: config.concurrency,
+      verbose: config.verbose
     )
   end
 

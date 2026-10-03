@@ -58,6 +58,16 @@ defmodule Muex.GitDiff do
     diff(["--cached"], Keyword.get(opts, :cd, File.cwd!()))
   end
 
+  @doc """
+  Returns the lines of the working tree that differ from git's index, keyed by
+  absolute path: the changes not staged. Uses `git diff --unified=0 --relative`
+  in `:cd`, honouring `GIT_INDEX_FILE` as `changed_staged/1` does.
+  """
+  @spec changed_unstaged(keyword()) :: {:ok, map()} | {:error, String.t()}
+  def changed_unstaged(opts \\ []) do
+    diff([], Keyword.get(opts, :cd, File.cwd!()))
+  end
+
   defp diff(selector, cd) do
     # `--` keeps a ref that is also a file name from being read as a path.
     args =

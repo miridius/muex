@@ -260,7 +260,7 @@ handling that never hides a killable mutant:
 mix muex --since main
 ```
 
-- **Staged `--staged`**: tests only lines staged in Git’s index, using `git diff --cached`. In a pre-commit hook, Git’s `GIT_INDEX_FILE` is honored, so the staged lines tested are the ones being committed. It cannot be combined with `--since`. For example, make `.git/hooks/pre-commit` executable:
+- **Staged `--staged`**: tests only lines staged in Git’s index, using `git diff --cached`. In a pre-commit hook, Git’s `GIT_INDEX_FILE` is honored, so the staged lines tested are the ones being committed. It cannot be combined with `--since`. If a file in the run has unstaged changes on top of staged changes, muex refuses the run and names the files because it mutates and tests files on disk. For example, make `.git/hooks/pre-commit` executable:
 
 ```sh
 #!/bin/sh

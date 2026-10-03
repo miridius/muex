@@ -85,15 +85,44 @@ defmodule Muex.Coverage do
   file's coverage export, which is deleted once merged (default: the
   `mix test` subprocess above);
   `:concurrency`, how many of those run at once (default
-  `System.schedulers_online/0`).
+  `System.schedulers_online/0`); `:verbose`, whether `:cover`'s notices about
+  imported data are printed (default `false`).
   """
   @spec collect([Path.t()], %{Path.t() => module()}, keyword()) :: t()
   def collect(test_files, file_to_module, opts \\ []) do
+    cover = ensure_cover_started()
+    sink = if Keyword.get(opts, :verbose, false), do: nil, else: spawn(&discard_io/0)
+    Process.group_leader(cover, sink || console())
+
+    try do
+      collect_with_cover(test_files, file_to_module, opts)
+    after
+      Process.group_leader(cover, console())
+      if sink, do: Process.exit(sink, :kill)
+    end
+  end
+
+  # `:cover` prints a few lines for every import (the files, "Deleting data for
+  # module ...", "Analysis includes data from imported files") to its group
+  # leader, which is whatever process first started it. That may be a process
+  # that has since exited, such as a `capture_io` one, and then the print never
+  # returns. So it is pointed at the console, or at a sink that drops the lines.
+  defp console, do: Process.whereis(:user) || Process.group_leader()
+
+  defp discard_io do
+    receive do
+      {:io_request, from, reply_as, _request} -> send(from, {:io_reply, reply_as, :ok})
+      _ -> :ok
+    end
+
+    discard_io()
+  end
+
+  defp collect_with_cover(test_files, file_to_module, opts) do
     cd = Keyword.get(opts, :cd, File.cwd!())
     run = Keyword.get(opts, :run, &run_with_coverage/2)
     concurrency = Keyword.get(opts, :concurrency, System.schedulers_online())
     module_to_path = invert(file_to_module)
-    ensure_cover_started()
     cover_dir = Path.join(cd, "cover")
     cover_dir_existed? = File.dir?(cover_dir)
 
@@ -126,8 +155,8 @@ defmodule Muex.Coverage do
 
   defp ensure_cover_started do
     case :cover.start() do
-      {:ok, _pid} -> :ok
-      {:error, {:already_started, _pid}} -> :ok
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
     end
   end
 

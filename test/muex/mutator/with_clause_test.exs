@@ -89,4 +89,17 @@ defmodule Muex.Mutator.WithClauseTest do
       assert Muex.Language.Elixir in WithClause.supported_languages()
     end
   end
+
+  test "reports each deletion on the deleted clause's line" do
+    ast =
+      Code.string_to_quoted!("""
+      with {:ok, a} <- foo(),
+           {:ok, b} <- bar(a) do
+        b
+      end
+      """)
+
+    lines = ast |> WithClause.mutate(%{file: "lib/m.ex"}) |> Enum.map(& &1.location.line)
+    assert lines == [1, 2]
+  end
 end

@@ -124,6 +124,43 @@ defmodule Muex.CoverageTest do
       assert Coverage.tests_for(index, "muex_cov_fixture.erl", 6) == {:covered, ["b_test.exs"]}
     end
 
+    # `:cover` prints to its own group leader: the process that first started
+    # it. Merging used to print about three lines per test file there.
+    @tag :tmp_dir
+    test "prints nothing from :cover unless verbose", %{tmp_dir: tmp_dir} do
+      project = write_cover_project!(tmp_dir)
+      {:ok, io} = StringIO.open("")
+      cover = cover_pid()
+      Process.group_leader(cover, io)
+
+      Coverage.collect(test_files(project), %{"lib/tiny.ex" => Tiny}, cd: project)
+
+      assert {:ok, {"", ""}} = StringIO.close(io)
+    end
+
+    # Started under a `capture_io` that has since ended, `:cover` blocked forever
+    # on its first print.
+    @tag :tmp_dir
+    test "does not hang when :cover's group leader has exited", %{tmp_dir: tmp_dir} do
+      project = write_cover_project!(tmp_dir)
+      {gone, ref} = spawn_monitor(fn -> :ok end)
+      assert_receive {:DOWN, ^ref, _, _, _}
+      Process.group_leader(cover_pid(), gone)
+
+      for verbose <- [false, true] do
+        collecting =
+          Task.async(fn ->
+            Coverage.collect(test_files(project), %{"lib/tiny.ex" => Tiny},
+              cd: project,
+              verbose: verbose
+            )
+          end)
+
+        assert {:covered, [_, _]} =
+                 collecting |> Task.await(60_000) |> Coverage.tests_for("lib/tiny.ex", 2)
+      end
+    end
+
     # Each `mix test --export-coverage` leaves cover/muex_cov_<n>.coverdata in
     # the project.
     @tag :tmp_dir
@@ -187,6 +224,13 @@ defmodule Muex.CoverageTest do
 
       Enum.each([b, c], &send(&1, :go))
       assert Task.await(collecting) == Coverage.new()
+    end
+  end
+
+  defp cover_pid do
+    case :cover.start() do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
     end
   end
 
