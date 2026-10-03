@@ -93,9 +93,13 @@ defmodule Muex.TestRunner.Port do
       System.get_env()
       |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 
+    # The port extends the inherited environment, so git's hook variables have
+    # to be unset explicitly; leaving them out of this list would not do it.
+    git_vars = Enum.map(Muex.GitEnv.local_vars(), &String.to_charlist/1)
+
     env =
-      Enum.reject(current_env, fn {k, _v} -> k == ~c"MIX_ENV" end) ++
-        [{~c"MIX_ENV", String.to_charlist(mix_env)}]
+      Enum.reject(current_env, fn {k, _v} -> k == ~c"MIX_ENV" or k in git_vars end) ++
+        Muex.GitEnv.port_env([{"MIX_ENV", mix_env}])
 
     cmd_args = Enum.map(args, &String.to_charlist/1)
 

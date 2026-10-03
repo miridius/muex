@@ -30,7 +30,8 @@ defmodule Mix.Tasks.Muex do
     * `--min-complexity` - Minimum complexity for mutations (default: 2, with --optimize)
     * `--max-per-function` - Max mutations per function (default: 20, with --optimize)
     * `--tce` / `--no-tce` - Enable/disable Trivial Compiler Equivalence (default: enabled)
-    * `--since` - Only test mutations on lines changed since a git ref, e.g. --since main (PR scoping)
+    * `--since` - Only test mutations on lines changed since a git ref, e.g. --since main (PR scoping, includes uncommitted edits)
+    * `--staged` - Only test mutations on lines staged in git's index, for pre-commit hooks (not with --since)
     * `--coverage-guided` - Run only the tests that cover each mutated line (default: disabled)
     * `--keep-metadata-mutations` - Keep mutations with no source location (line: 0); dropped by default
     * `--preset` - Framework preset to prune DSL noise: phoenix, ecto, ash, none (default: none)
@@ -52,6 +53,7 @@ defmodule Mix.Tasks.Muex do
       mix muex --test-paths "test/unit,test/integration"
       mix muex --preset phoenix           # Prune Phoenix component/router DSL noise
       mix muex --since main               # Only mutate lines changed since main
+      mix muex --staged                   # Only mutate staged lines (pre-commit hook)
       mix muex --coverage-guided          # Run only tests covering each mutated line
       mix muex --no-tce                   # Disable Trivial Compiler Equivalence
       mix muex --files "lib/my_module.ex" --test-paths "test/my_module_test.exs"

@@ -186,6 +186,86 @@ defmodule Muex.GitDiffTest do
       assert {:error, reason} = GitDiff.changed_since("no-such-ref-xyz", cd: dir)
       assert is_binary(reason)
     end
+
+    # The files on disk are what gets mutated. Two uncommitted lines at the top
+    # move the committed change from line 2 to line 4; diffing HEAD alone would
+    # still say line 2 and never name the new lines.
+    test "includes uncommitted edits, numbered as the file on disk", %{dir: dir} do
+      file = Path.join(dir, "calc.ex")
+      File.write!(file, "one\ntwo\nthree\n")
+      git!(["add", "."], dir)
+      git!(["commit", "-q", "-m", "init"], dir)
+
+      File.write!(file, "one\nCHANGED\nthree\n")
+      git!(["commit", "-q", "-am", "change line 2"], dir)
+
+      File.write!(file, "new a\nnew b\none\nCHANGED\nthree\n")
+
+      assert GitDiff.changed_since("HEAD~1", cd: dir) ==
+               {:ok, %{file => MapSet.new([1, 2, 4])}}
+    end
+
+    # Commits made on the ref after the branch left it are not the branch's
+    # changes.
+    test "diffs against the merge base, not the ref's tip", %{dir: dir} do
+      File.write!(Path.join(dir, "mine.ex"), "a\n")
+      File.write!(Path.join(dir, "theirs.ex"), "a\n")
+      git!(["add", "."], dir)
+      git!(["commit", "-q", "-m", "init"], dir)
+      git!(["branch", "base"], dir)
+
+      File.write!(Path.join(dir, "mine.ex"), "b\n")
+      git!(["commit", "-q", "-am", "mine"], dir)
+
+      git!(["checkout", "-q", "base"], dir)
+      File.write!(Path.join(dir, "theirs.ex"), "b\n")
+      git!(["commit", "-q", "-am", "theirs"], dir)
+      git!(["checkout", "-q", "-"], dir)
+
+      assert GitDiff.changed_since("base", cd: dir) ==
+               {:ok, %{Path.join(dir, "mine.ex") => MapSet.new([1])}}
+    end
+  end
+
+  describe "changed_staged/1 (real git)" do
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: dir} do
+      git!(["init", "-q"], dir)
+      git!(["config", "user.email", "t@example.com"], dir)
+      git!(["config", "user.name", "Test"], dir)
+      %{dir: dir}
+    end
+
+    test "returns only the staged lines", %{dir: dir} do
+      staged = Path.join(dir, "staged.ex")
+      unstaged = Path.join(dir, "unstaged.ex")
+      File.write!(staged, "one\ntwo\nthree\n")
+      File.write!(unstaged, "one\n")
+      git!(["add", "."], dir)
+      git!(["commit", "-q", "-m", "init"], dir)
+
+      File.write!(staged, "one\nSTAGED\nthree\n")
+      git!(["add", "staged.ex"], dir)
+      File.write!(staged, "one\nSTAGED\nUNSTAGED\n")
+      File.write!(unstaged, "UNSTAGED\n")
+
+      assert GitDiff.changed_staged(cd: dir) == {:ok, %{staged => MapSet.new([2])}}
+    end
+
+    test "names files from :cd when the project is in a subdirectory", %{dir: dir} do
+      project = Path.join(dir, "project")
+      File.mkdir_p!(project)
+      File.write!(Path.join(project, "calc.ex"), "one\n")
+      git!(["add", "."], dir)
+      git!(["commit", "-q", "-m", "init"], dir)
+
+      File.write!(Path.join(project, "calc.ex"), "CHANGED\n")
+      git!(["add", "."], dir)
+
+      assert GitDiff.changed_staged(cd: project) ==
+               {:ok, %{Path.join(project, "calc.ex") => MapSet.new([1])}}
+    end
   end
 
   describe "filter_mutations/2" do

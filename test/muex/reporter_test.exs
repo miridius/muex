@@ -21,6 +21,20 @@ defmodule Muex.ReporterTest do
       assert output =~ "Mutation Score: \e[33m66.67%\e[0m"
     end
 
+    test "lists ignored mutants with their reasons, outside the score" do
+      results = [
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :ignored, mutation: test_mutation(), ignore_reason: "logging only"}
+      ]
+
+      output = capture_io(fn -> Reporter.print_summary(results) end)
+
+      assert output =~ "Ignored:\e[0m 1"
+      assert output =~ "Ignored Mutations:"
+      assert output =~ "Reason: logging only"
+      assert output =~ "Mutation Score: \e[32m100.0%\e[0m"
+    end
+
     test "handles all killed mutations" do
       results = [
         %{result: :killed, mutation: test_mutation()},
@@ -159,6 +173,17 @@ defmodule Muex.ReporterTest do
       assert Reporter.summary_line(results) ==
                "Mutation Score: 100.0% (4 mutants: 1 killed, 0 survived, 0 invalid, 0 timed out, " <>
                  "1 equivalent, 2 no coverage)"
+    end
+
+    test "counts ignored mutants, outside the score" do
+      results = [
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :ignored, mutation: test_mutation(), ignore_reason: "harmless"}
+      ]
+
+      assert Reporter.summary_line(results) ==
+               "Mutation Score: 100.0% (2 mutants: 1 killed, 0 survived, 0 invalid, 0 timed out, " <>
+                 "1 ignored)"
     end
 
     test "shows a range when timeouts make the score uncertain" do

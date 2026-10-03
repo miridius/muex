@@ -23,6 +23,7 @@ defmodule Muex.ConfigTest do
       assert config.max_per_function == nil
       assert config.tce == true
       assert config.since == nil
+      assert config.staged == false
       assert config.coverage_guided == false
       assert config.mirror == []
       assert Muex.Mutator.Literal in config.mutators
@@ -183,6 +184,16 @@ defmodule Muex.ConfigTest do
     test "parses --since" do
       assert {:ok, config} = Config.from_args(["--since", "main"])
       assert config.since == "main"
+    end
+
+    test "parses --staged" do
+      assert {:ok, config} = Config.from_args(["--staged"])
+      assert config.staged == true
+    end
+
+    test "refuses --staged together with --since" do
+      assert {:error, reason} = Config.from_args(["--staged", "--since", "main"])
+      assert reason =~ "--staged and --since cannot be used together"
     end
 
     test "parses --coverage-guided" do

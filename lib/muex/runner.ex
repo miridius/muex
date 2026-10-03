@@ -5,7 +5,8 @@ defmodule Muex.Runner do
   Executes the test suite for each mutation and classifies the results.
   """
 
-  @type result :: :killed | :survived | :invalid | :timeout | :equivalent | :no_coverage
+  @type result ::
+          :killed | :survived | :invalid | :timeout | :equivalent | :no_coverage | :ignored
   @type mutation_result :: %{
           mutation: map(),
           result: result(),

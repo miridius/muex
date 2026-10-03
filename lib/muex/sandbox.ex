@@ -287,7 +287,7 @@ defmodule Muex.Sandbox do
       {output, status} =
         System.cmd("mix", ["compile"],
           cd: sandbox.root,
-          env: [{"MIX_ENV", sandbox.build_env}],
+          env: Muex.GitEnv.cmd_env([{"MIX_ENV", sandbox.build_env}]),
           stderr_to_stdout: true
         )
 

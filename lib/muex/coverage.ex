@@ -82,7 +82,8 @@ defmodule Muex.Coverage do
 
   Options: `:cd` (project root, default `File.cwd!/0`); `:run`, a function
   `(test_file, cd) -> {:ok, coverdata_path} | :error` that produces a test
-  file's coverage export (default: the `mix test` subprocess above);
+  file's coverage export, which is deleted once merged (default: the
+  `mix test` subprocess above);
   `:concurrency`, how many of those run at once (default
   `System.schedulers_online/0`).
   """
@@ -93,19 +94,30 @@ defmodule Muex.Coverage do
     concurrency = Keyword.get(opts, :concurrency, System.schedulers_online())
     module_to_path = invert(file_to_module)
     ensure_cover_started()
+    cover_dir = Path.join(cd, "cover")
+    cover_dir_existed? = File.dir?(cover_dir)
 
     # The test files run side by side, each in its own VM. Their exports are
     # merged one at a time: `:cover` is one server per node, and each merge
     # resets and re-imports the same modules.
-    test_files
-    |> Task.async_stream(&{&1, run.(&1, cd)}, max_concurrency: concurrency, timeout: :infinity)
-    |> Enum.reduce(new(), fn
-      {:ok, {test_file, {:ok, coverdata}}}, index ->
-        merge_coverage(index, test_file, coverdata, module_to_path)
+    index =
+      test_files
+      |> Task.async_stream(&{&1, run.(&1, cd)}, max_concurrency: concurrency, timeout: :infinity)
+      |> Enum.reduce(new(), fn
+        {:ok, {test_file, {:ok, coverdata}}}, index ->
+          try do
+            merge_coverage(index, test_file, coverdata, module_to_path)
+          after
+            File.rm(coverdata)
+          end
 
-      {:ok, {_test_file, :error}}, index ->
-        index
-    end)
+        {:ok, {_test_file, :error}}, index ->
+          index
+      end)
+
+    # Removes `cover/` only when this run created it and nothing else is in it.
+    if not cover_dir_existed?, do: File.rmdir(cover_dir)
+    index
   end
 
   defp invert(file_to_module) do
@@ -123,22 +135,28 @@ defmodule Muex.Coverage do
     # The export lands in the project's own cover/ dir, which another muex
     # process on the same project shares, so the OS pid keeps the names apart.
     name = "muex_cov_#{System.pid()}_#{System.unique_integer([:positive])}"
+    path = Path.join([cd, "cover", "#{name}.coverdata"])
 
-    case System.cmd("mix", ["test", test_file, "--cover", "--export-coverage", name],
-           cd: cd,
-           env: [{"MIX_ENV", "test"}],
-           stderr_to_stdout: true
-         ) do
+    result =
+      try do
+        System.cmd("mix", ["test", test_file, "--cover", "--export-coverage", name],
+          cd: cd,
+          env: Muex.GitEnv.cmd_env([{"MIX_ENV", "test"}]),
+          stderr_to_stdout: true
+        )
+      rescue
+        _ -> :error
+      end
+
+    case result do
       # 0 = all passed, 1 = some failed; both still produce coverage data.
       {_out, code} when code in [0, 1] ->
-        path = Path.join([cd, "cover", "#{name}.coverdata"])
         if File.exists?(path), do: {:ok, path}, else: :error
 
       _ ->
+        File.rm(path)
         :error
     end
-  rescue
-    _ -> :error
   end
 
   # `:cover.reset/0` resets only cover-compiled modules and leaves the data of

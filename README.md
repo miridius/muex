@@ -159,6 +159,9 @@ mix muex --preset phoenix   # also: ecto, ash
 # Only mutate lines changed since a branch/ref (pull-request scoping)
 mix muex --since main
 
+# Only mutate lines staged in git's index (pre-commit hook)
+mix muex --staged
+
 # Run only the tests that cover each mutated line
 mix muex --coverage-guided
 
@@ -251,12 +254,24 @@ handling that never hides a killable mutant:
   skipped (for example `:integration` tests without their database), `mix test`
   still exits 0, and the mutant is reported as `No coverage`, not survived. In an
   umbrella, the baseline refuses the run before any mutant if its tests ran none.
-- **Incremental `--since <ref>`**: scopes mutation testing to the lines changed
-  since a git ref (`git diff <ref>...HEAD`), which is ideal for pull-request CI:
+- **Incremental `--since <ref>`**: scopes mutation testing to lines changed since a git ref. It uses `git diff --merge-base <ref>` to compare the working tree with the point where the branch diverged from `<ref>`, so uncommitted edits are included and line numbers match the files on disk. On a clean working tree, the result is the same as before. Requires Git 2.30 or later:
 
 ```bash
 mix muex --since main
 ```
+
+- **Staged `--staged`**: tests only lines staged in Git’s index, using `git diff --cached`. In a pre-commit hook, Git’s `GIT_INDEX_FILE` is honored, so the staged lines tested are the ones being committed. It cannot be combined with `--since`. For example, make `.git/hooks/pre-commit` executable:
+
+```sh
+#!/bin/sh
+exec mix muex --staged --fail-at 80
+```
+
+`--fail-at 80` fails the run when the mutation score is below 80%.
+
+Since `--fail-at` defaults to 80, `mix muex` fails with a reported score of 0.0% below the threshold when there are no mutants to score and `--fail-at` is above 0. This happens when no staged line produces a mutant (for example, a docs-only commit), or when every mutant is ignored, equivalent, or invalid, so the hook blocks those commits too. The hook needs to handle this case, for example by skipping muex when no `lib` files are staged.
+
+- **Ignoring mutants with `# muex:ignore <reason>`**: put a reasoned comment at the end of a mutated line or directly above it to skip mutants on that line and the line below. Ignored mutants are not run and are left out of the mutation score. A reason is required; a bare `# muex:ignore` refuses the run.
 
 ## Compile-Time Configuration
 

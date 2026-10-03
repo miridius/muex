@@ -115,41 +115,48 @@ defmodule Muex do
   end
 
   defp do_run(config, all_files) do
-    case resolve_changed(config) do
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, changed} <- resolve_changed(config),
+         files = all_files |> maybe_filter(config) |> scope_to_changed_files(changed),
+         {:ok, ignores} <- Muex.Ignore.directives(files, config.project_root) do
+      log("Generating mutations...", config.verbose)
 
-      {:ok, changed} ->
-        files =
-          all_files
-          |> maybe_filter(config)
-          |> scope_to_changed_files(changed)
+      {to_check, ignored_results} =
+        files
+        |> Enum.flat_map(fn file ->
+          context = %{file: file.path, skip_calls: config.skip_calls}
+          Muex.Mutator.walk(file.ast, config.mutators, context)
+        end)
+        |> maybe_drop_unlocatable(config)
+        |> Muex.GitDiff.filter_mutations(changed)
+        |> split_ignored(ignores, config)
 
-        log("Generating mutations...", config.verbose)
+      {candidates, equivalent_results} = split_equivalent(to_check, config)
+      unrun_results = ignored_results ++ equivalent_results
 
-        {candidates, equivalent_results} =
-          files
-          |> Enum.flat_map(fn file ->
-            context = %{file: file.path, skip_calls: config.skip_calls}
-            Muex.Mutator.walk(file.ast, config.mutators, context)
-          end)
-          |> maybe_drop_unlocatable(config)
-          |> Muex.GitDiff.filter_mutations(changed)
-          |> split_equivalent(config)
+      all_mutations = candidates |> maybe_optimize(config) |> maybe_cap(config)
 
-        all_mutations = candidates |> maybe_optimize(config) |> maybe_cap(config)
-
-        case {all_mutations, equivalent_results} do
-          {[_ | _], _} -> run_mutations(config, files, all_mutations, equivalent_results)
-          {[], [_ | _]} -> report_unscored(equivalent_results, config)
-          {[], []} -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
-        end
+      case {all_mutations, unrun_results} do
+        {[_ | _], _} -> run_mutations(config, files, all_mutations, unrun_results)
+        {[], [_ | _]} -> report_unscored(unrun_results, config)
+        {[], []} -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+      end
     end
   end
 
-  # `nil` means no --since: run over everything. Otherwise resolve the diff
-  # against the given ref once, up front.
-  defp resolve_changed(%Muex.Config{since: nil}), do: {:ok, nil}
+  # `nil` means neither --since nor --staged: run over everything. Otherwise
+  # resolve the diff once, up front.
+  defp resolve_changed(%Muex.Config{since: nil, staged: false}), do: {:ok, nil}
+
+  defp resolve_changed(%Muex.Config{since: nil, staged: true} = config) do
+    case Muex.GitDiff.changed_staged(cd: config.project_root) do
+      {:ok, changed} ->
+        log("Scoping to #{map_size(changed)} file(s) with staged changes", config.verbose)
+        {:ok, changed}
+
+      {:error, reason} ->
+        {:error, "git diff --cached failed: #{reason}"}
+    end
+  end
 
   defp resolve_changed(%Muex.Config{since: ref} = config) do
     case Muex.GitDiff.changed_since(ref, cd: config.project_root) do
@@ -162,7 +169,8 @@ defmodule Muex do
     end
   end
 
-  # Restrict the file set to those touched by the --since diff (nil = no scoping).
+  # Restrict the file set to those touched by the --since or --staged diff
+  # (nil = no scoping).
   # The diff names files by absolute path; a loaded file's path may be relative.
   defp scope_to_changed_files(files, nil), do: files
 
@@ -208,6 +216,19 @@ defmodule Muex do
       line when is_integer(line) and line > 0 -> true
       _ -> false
     end
+  end
+
+  # Mutants on a line a `# muex:ignore <reason>` comment covers are not run.
+  # They are reported as :ignored with the reason, and the score leaves them out.
+  defp split_ignored(mutations, ignores, %Muex.Config{verbose: verbose}) do
+    {kept, ignored} = Muex.Ignore.split(mutations, ignores)
+
+    log(
+      "Found #{length(ignored)} mutant(s) under # muex:ignore, reported without running",
+      verbose
+    )
+
+    {kept, ignored}
   end
 
   # Always-on: equivalent mutants can never be killed, so they are not run. They
@@ -275,7 +296,7 @@ defmodule Muex do
     )
   end
 
-  defp run_mutations(config, files, all_mutations, equivalent_results) do
+  defp run_mutations(config, files, all_mutations, unrun_results) do
     log("Testing #{length(all_mutations)} mutation(s)", config.verbose)
     log("Analyzing test dependencies...", config.verbose)
 
@@ -314,22 +335,23 @@ defmodule Muex do
       )
 
     results
-    |> with_equivalents(equivalent_results)
+    |> with_unrun(unrun_results)
     |> report(config)
   end
 
-  # Nothing was left to run, only mutants judged equivalent. The report shows
-  # them, but the result is the same as for a run with no mutants, so the escript
-  # and the Mix task exit exactly as they did before equivalents were reported.
-  defp report_unscored(equivalent_results, config) do
-    case output_report(equivalent_results, config) do
+  # Nothing was left to run, only mutants judged equivalent or ignored. The
+  # report shows them, but the result is the same as for a run with no mutants,
+  # so the escript and the Mix task exit exactly as they did before equivalents
+  # were reported.
+  defp report_unscored(unrun_results, config) do
+    case output_report(unrun_results, config) do
       {:error, _} = err -> err
       _ -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
     end
   end
 
-  defp with_equivalents({:error, _reason} = err, _equivalent_results), do: err
-  defp with_equivalents(results, equivalent_results), do: results ++ equivalent_results
+  defp with_unrun({:error, _reason} = err, _unrun_results), do: err
+  defp with_unrun(results, unrun_results), do: results ++ unrun_results
 
   # The worker pool answers {:error, reason} when it refused the run before any
   # mutant ran (see Muex.Sandbox.Error), or stopped it because something outside

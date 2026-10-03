@@ -34,7 +34,8 @@ defmodule Muex.Reporter do
       invalid: invalid,
       timeout: timeout,
       equivalent: equivalent,
-      no_coverage: no_coverage
+      no_coverage: no_coverage,
+      ignored: ignored
     } = count_by_status(results)
 
     score = score_range(killed, survived, timeout)
@@ -67,6 +68,10 @@ defmodule Muex.Reporter do
       print_no_tests_ran(results)
     end
 
+    if ignored > 0 do
+      IO.puts("#{@gray}Ignored:#{@reset} #{ignored} #{@gray}(# muex:ignore, skipped)#{@reset}")
+    end
+
     IO.puts("#{@gray}#{String.duplicate("=", 50)}#{@reset}")
 
     score_color =
@@ -81,6 +86,10 @@ defmodule Muex.Reporter do
 
     if survived > 0 do
       print_survived_mutations(results)
+    end
+
+    if ignored > 0 do
+      print_ignored_mutations(results)
     end
 
     :ok
@@ -106,14 +115,18 @@ defmodule Muex.Reporter do
         "#{counts.invalid} invalid",
         "#{counts.timeout} timed out"
       ] ++
-        for {status, label} <- [equivalent: "equivalent", no_coverage: "no coverage"],
+        for {status, label} <- [
+              equivalent: "equivalent",
+              no_coverage: "no coverage",
+              ignored: "ignored"
+            ],
             counts[status] > 0,
             do: "#{counts[status]} #{label}"
 
     "Mutation Score: #{score} (#{length(results)} mutants: #{Enum.join(parts, ", ")})"
   end
 
-  @statuses [:killed, :survived, :invalid, :timeout, :equivalent, :no_coverage]
+  @statuses [:killed, :survived, :invalid, :timeout, :equivalent, :no_coverage, :ignored]
 
   defp count_by_status(results) do
     frequencies = Enum.frequencies_by(results, & &1.result)
@@ -122,7 +135,8 @@ defmodule Muex.Reporter do
 
   # Invalids, equivalents, and no-coverage mutants are excluded: none of them
   # says anything about test quality (an equivalent mutant can never be
-  # killed, and a no-coverage line has no test that could kill it).
+  # killed, and a no-coverage line has no test that could kill it). Ignored
+  # mutants are left out too: a comment has declared them harmless.
   # Timeouts are ambiguous -- could be killed or survived -- so the score is a
   # range: the low bound counts them as survived, the high bound as killed.
   defp score_range(killed, survived, timeout) do
@@ -204,6 +218,18 @@ defmodule Muex.Reporter do
       print_test_files(Map.get(result, :test_files, []))
       IO.puts("")
     end)
+  end
+
+  defp print_ignored_mutations(results) do
+    IO.puts("#{@bold}#{@gray}Ignored Mutations:#{@reset}")
+    IO.puts("#{@gray}#{String.duplicate("-", 50)}#{@reset}")
+
+    for %{result: :ignored, mutation: mutation} = result <- results do
+      IO.puts("#{@cyan}#{mutation.location.file}:#{mutation.location.line}#{@reset}")
+      IO.puts("  #{@yellow}#{mutation.description}#{@reset}")
+      IO.puts("    #{@gray}Reason: #{result.ignore_reason}#{@reset}")
+      IO.puts("")
+    end
   end
 
   # A survivor's test files all ran and passed anyway; naming them points at the

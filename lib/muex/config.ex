@@ -60,7 +60,13 @@ defmodule Muex.Config do
     * `--tce` / `--no-tce` - Enable/disable Trivial Compiler Equivalence, which
       drops mutants that compile to identical BEAM code (default: enabled)
     * `--since` - Only test mutations on lines changed since the given git ref
-      (e.g. `--since main`), using `git diff <ref>...HEAD` (PR semantics)
+      (e.g. `--since main`), using `git diff --merge-base <ref>`: the working
+      tree against the point where the branch diverged from `<ref>` (PR
+      semantics, plus uncommitted edits)
+    * `--staged` - Only test mutations on lines staged in git's index, using
+      `git diff --cached`. For pre-commit hooks: it honours the
+      `GIT_INDEX_FILE` git sets for `git commit -a` and `git commit <paths>`.
+      Cannot be combined with `--since`.
     * `--coverage-guided` - Run only the tests that cover each mutated line, and
       skip mutations on lines no test exercises (default: disabled)
     * `--mirror` - Comma-separated extra top-level directories to symlink into
@@ -113,6 +119,7 @@ defmodule Muex.Config do
           optimize: boolean(),
           tce: boolean(),
           since: String.t() | nil,
+          staged: boolean(),
           coverage_guided: boolean(),
           optimize_level: String.t(),
           min_complexity: non_neg_integer() | nil,
@@ -142,6 +149,7 @@ defmodule Muex.Config do
     optimize: true,
     tce: true,
     since: nil,
+    staged: false,
     coverage_guided: false,
     optimize_level: "balanced",
     min_complexity: nil,
@@ -174,6 +182,7 @@ defmodule Muex.Config do
                tce: :boolean,
                no_tce: :boolean,
                since: :string,
+               staged: :boolean,
                coverage_guided: :boolean,
                optimize_level: :string,
                min_complexity: :integer,
@@ -211,6 +220,7 @@ defmodule Muex.Config do
            validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")),
          {:ok, format} <- validate_format(format),
          {:ok, output} <- validate_output(Keyword.get(opts, :output), format),
+         :ok <- validate_diff_scope(Keyword.get(opts, :since), Keyword.get(opts, :staged)),
          {:ok, mirror} <- validate_mirror(Keyword.get(opts, :mirror)) do
       config = %__MODULE__{
         files: files,
@@ -231,6 +241,7 @@ defmodule Muex.Config do
         optimize: resolve_optimize(opts),
         tce: resolve_tce(opts),
         since: Keyword.get(opts, :since),
+        staged: Keyword.get(opts, :staged, false),
         coverage_guided: Keyword.get(opts, :coverage_guided, false),
         optimize_level: optimize_level,
         min_complexity: Keyword.get(opts, :min_complexity),
@@ -476,6 +487,13 @@ defmodule Muex.Config do
   defp validate_output(_path, format) do
     {:error, "--output needs --format json or --format html, not #{format}"}
   end
+
+  # Each picks the lines to mutate from a different diff; together they would
+  # leave it unclear which one wins.
+  defp validate_diff_scope(since, true) when is_binary(since),
+    do: {:error, "--staged and --since cannot be used together; pick one"}
+
+  defp validate_diff_scope(_since, _staged), do: :ok
 
   @unmirrorable_dirs ~w(lib test deps _build apps config .git)
 
