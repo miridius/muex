@@ -124,6 +124,41 @@ defmodule Muex.CoverageTest do
       assert Coverage.tests_for(index, "muex_cov_fixture.erl", 6) == {:covered, ["b_test.exs"]}
     end
 
+    # Each `mix test --export-coverage` leaves cover/muex_cov_<n>.coverdata in
+    # the project.
+    @tag :tmp_dir
+    test "removes its coverage exports, and cover/ when it created it",
+         %{tmp_dir: tmp_dir} do
+      project = write_cover_project!(tmp_dir)
+
+      index = Coverage.collect(test_files(project), %{"lib/tiny.ex" => Tiny}, cd: project)
+
+      assert {:covered, [_, _]} = Coverage.tests_for(index, "lib/tiny.ex", 2)
+      refute File.exists?(Path.join(project, "cover"))
+    end
+
+    @tag :tmp_dir
+    test "leaves a cover/ that was already there, and what is in it",
+         %{tmp_dir: tmp_dir} do
+      project = write_cover_project!(tmp_dir)
+      File.mkdir_p!(Path.join(project, "cover"))
+      File.write!(Path.join(project, "cover/keep.coverdata"), "")
+
+      Coverage.collect(test_files(project), %{"lib/tiny.ex" => Tiny}, cd: project)
+
+      assert File.ls!(Path.join(project, "cover")) == ["keep.coverdata"]
+    end
+
+    @tag :tmp_dir
+    test "deletes an export it was given once it is merged", %{tmp_dir: tmp_dir} do
+      export = Path.join(tmp_dir, "a.coverdata")
+      File.write!(export, "")
+
+      Coverage.collect(["a_test.exs"], %{}, run: fn _test_file, _cd -> {:ok, export} end)
+
+      refute File.exists?(export)
+    end
+
     test "runs up to :concurrency test files at once" do
       test_pid = self()
 
@@ -153,5 +188,39 @@ defmodule Muex.CoverageTest do
       Enum.each([b, c], &send(&1, :go))
       assert Task.await(collecting) == Coverage.new()
     end
+  end
+
+  defp test_files(project), do: Path.wildcard(Path.join(project, "test/*_test.exs"))
+
+  defp write_cover_project!(tmp_dir) do
+    root = Path.join(tmp_dir, "tiny")
+    File.mkdir_p!(Path.join(root, "lib"))
+    File.mkdir_p!(Path.join(root, "test"))
+
+    File.write!(Path.join(root, "mix.exs"), """
+    defmodule Tiny.MixProject do
+      use Mix.Project
+      def project, do: [app: :tiny, version: "0.1.0", elixir: "~> 1.15"]
+    end
+    """)
+
+    File.write!(Path.join(root, "lib/tiny.ex"), """
+    defmodule Tiny do
+      def add(a, b), do: a + b
+    end
+    """)
+
+    File.write!(Path.join(root, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    for name <- ["a", "b"] do
+      File.write!(Path.join(root, "test/#{name}_test.exs"), """
+      defmodule #{String.upcase(name)}Test do
+        use ExUnit.Case
+        test "add/2", do: assert(Tiny.add(2, 3) == 5)
+      end
+      """)
+    end
+
+    root
   end
 end

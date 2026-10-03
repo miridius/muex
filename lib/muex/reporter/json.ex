@@ -59,6 +59,7 @@ defmodule Muex.Reporter.Json do
     timeout = Enum.count(results, &(&1.result == :timeout))
     equivalent = Enum.count(results, &(&1.result == :equivalent))
     no_coverage = Enum.count(results, &(&1.result == :no_coverage))
+    ignored = Enum.count(results, &(&1.result == :ignored))
 
     denom = killed + survived + timeout
 
@@ -78,6 +79,7 @@ defmodule Muex.Reporter.Json do
         timeout: timeout,
         equivalent: equivalent,
         no_coverage: no_coverage,
+        ignored: ignored,
         mutation_score_low: score_low,
         mutation_score_high: score_high
       },
@@ -99,6 +101,7 @@ defmodule Muex.Reporter.Json do
       patch: Patch.of(mutation),
       duration_ms: Map.get(result, :duration_ms, 0),
       error: format_error(Map.get(result, :error)),
+      ignore_reason: Map.get(result, :ignore_reason),
       test_files: Map.get(result, :test_files, [])
     }
   end

@@ -33,6 +33,28 @@ defmodule Muex.Reporter.HtmlTest do
 
       refute File.read!(output_file) =~ "Test files:"
     end
+
+    test "shows an ignored mutant's reason", %{tmp_dir: tmp_dir} do
+      output_file = Path.join(tmp_dir, "report.html")
+
+      results = [
+        %{
+          result: :ignored,
+          mutation: test_mutation(),
+          duration_ms: 0,
+          error: nil,
+          ignore_reason: "x < y is cosmetic"
+        }
+      ]
+
+      assert :ok = Html.generate(results, output_file: output_file)
+      html = File.read!(output_file)
+
+      assert html =~
+               ~s(<div class="summary-label">Ignored</div>\n        <div class="summary-number">1</div>)
+
+      assert html =~ "Ignored: x &lt; y is cosmetic"
+    end
   end
 
   defp test_mutation do

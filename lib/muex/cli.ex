@@ -118,6 +118,7 @@ defmodule Muex.CLI do
         --max-per-function <n>      Max mutations per function (default: 20)
         --tce / --no-tce            Trivial Compiler Equivalence (default: enabled)
         --since <ref>               Only mutate lines changed since a git ref
+        --staged                    Only mutate lines staged in git's index
         --coverage-guided           Run only tests covering each mutated line
         -h, --help                  Show this help message
         -v, --version               Show version information

@@ -4,7 +4,8 @@ defmodule Muex.GitDiff do
   testing can be scoped to exactly what a branch/PR modified.
 
   `changed_lines/1` is a pure parser over `git diff --unified=0` output;
-  `changed_since/2` shells out to `git` and feeds it that parser.
+  `changed_since/2` and `changed_staged/1` shell out to `git` and feed it that
+  parser.
   """
 
   # `@@ -<old> +<newStart>[,<newCount>] @@` — we only care about the new-file
@@ -26,19 +27,40 @@ defmodule Muex.GitDiff do
   end
 
   @doc """
-  Returns the lines changed on the current branch relative to `ref`, keyed by
-  absolute path.
+  Returns the lines changed relative to `ref`, keyed by absolute path.
 
-  Uses `git diff --unified=0 --relative <ref>...HEAD` in `:cd` (default: the
-  current directory), i.e. changes since the branch diverged from `ref` (PR
-  semantics). `--relative` names files from `:cd` rather than from the top of
-  the repository, so a project that lives in a subdirectory of its repository
-  still finds its own files. Returns `{:ok, map}` or `{:error, reason}`.
+  Uses `git diff --unified=0 --relative --merge-base <ref>` in `:cd` (default:
+  the current directory): the working tree against the point where the branch
+  diverged from `ref` (PR semantics). The working tree, not `HEAD`, is what
+  gets mutated, so uncommitted edits are included and the line numbers match
+  the files on disk; on a clean tree this is the same as `<ref>...HEAD`.
+  `--relative` names files from `:cd` rather than from the top of the
+  repository, so a project that lives in a subdirectory of its repository still
+  finds its own files. Returns `{:ok, map}` or `{:error, reason}`.
   """
   @spec changed_since(String.t(), keyword()) :: {:ok, map()} | {:error, String.t()}
   def changed_since(ref, opts \\ []) when is_binary(ref) do
-    cd = Keyword.get(opts, :cd, File.cwd!())
-    args = ["diff", "--unified=0", "--no-color", "--relative", "#{ref}...HEAD"]
+    diff(["--merge-base", ref], Keyword.get(opts, :cd, File.cwd!()))
+  end
+
+  @doc """
+  Returns the lines staged in git's index, keyed by absolute path.
+
+  Uses `git diff --cached --unified=0 --relative` in `:cd` (default: the
+  current directory). git runs with this process's environment, so a
+  `GIT_INDEX_FILE` set by a pre-commit hook is honoured: during
+  `git commit -a` or `git commit <paths>`, git points hooks at a temporary
+  index, and that index is what will be committed. Returns `{:ok, map}` or
+  `{:error, reason}`.
+  """
+  @spec changed_staged(keyword()) :: {:ok, map()} | {:error, String.t()}
+  def changed_staged(opts \\ []) do
+    diff(["--cached"], Keyword.get(opts, :cd, File.cwd!()))
+  end
+
+  defp diff(selector, cd) do
+    # `--` keeps a ref that is also a file name from being read as a path.
+    args = ["diff", "--unified=0", "--no-color", "--relative"] ++ selector ++ ["--"]
 
     case System.cmd("git", args, cd: cd, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output |> changed_lines() |> expand_paths(cd)}
@@ -51,10 +73,10 @@ defmodule Muex.GitDiff do
   @doc """
   Keeps only the mutations whose location falls on a changed line.
 
-  `changed` is a map as returned by `changed_since/2`, or `nil` to disable
-  filtering (returns every mutation unchanged). A mutation's file is expanded
-  before the lookup, so a location loaded as `lib/foo.ex` matches the absolute
-  path the diff names.
+  `changed` is a map as returned by `changed_since/2` or `changed_staged/1`, or
+  `nil` to disable filtering (returns every mutation unchanged). A mutation's
+  file is expanded before the lookup, so a location loaded as `lib/foo.ex`
+  matches the absolute path the diff names.
   """
   @spec filter_mutations([map()], map() | nil) :: [map()]
   def filter_mutations(mutations, nil), do: mutations

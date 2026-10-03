@@ -38,6 +38,30 @@ defmodule Muex.Reporter.JsonTest do
       assert length(mutations) == 2
     end
 
+    test "reports ignored mutants with their reason, outside the score" do
+      results = [
+        %{result: :killed, mutation: test_mutation("lib/foo.ex", 1), duration_ms: 1, error: nil},
+        %{
+          result: :ignored,
+          mutation: test_mutation("lib/foo.ex", 2),
+          duration_ms: 0,
+          error: nil,
+          ignore_reason: "logging only"
+        }
+      ]
+
+      report = results |> Json.to_json() |> Jason.decode!()
+
+      assert report["summary"]["ignored"] == 1
+      assert report["summary"]["mutation_score_low"] == 100.0
+
+      assert [
+               %{"ignore_reason" => nil},
+               %{"status" => "ignored", "ignore_reason" => "logging only"}
+             ] =
+               report["mutations"]
+    end
+
     test "includes mutation details" do
       results = [
         %{

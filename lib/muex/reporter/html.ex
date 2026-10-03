@@ -35,6 +35,7 @@ defmodule Muex.Reporter.Html do
     timeout = Enum.count(results, &(&1.result == :timeout))
     equivalent = Enum.count(results, &(&1.result == :equivalent))
     no_coverage = Enum.count(results, &(&1.result == :no_coverage))
+    ignored = Enum.count(results, &(&1.result == :ignored))
 
     denom = killed + survived + timeout
 
@@ -95,6 +96,7 @@ defmodule Muex.Reporter.Html do
         .summary-card.timeout { background: #e8daef; border-left: 4px solid #8e44ad; }
         .summary-card.equivalent { background: #eef2f3; border-left: 4px solid #7f8c8d; }
         .summary-card.no_coverage { background: #eef2f3; border-left: 4px solid #34495e; }
+        .summary-card.ignored { background: #eef2f3; border-left: 4px solid #95a5a6; }
         .summary-card.score {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
@@ -149,6 +151,7 @@ defmodule Muex.Reporter.Html do
         .mutation.timeout { border-left-color: #8e44ad; }
         .mutation.equivalent { border-left-color: #7f8c8d; }
         .mutation.no_coverage { border-left-color: #34495e; }
+        .mutation.ignored { border-left-color: #95a5a6; }
         .mutation-header {
           display: flex;
           justify-content: space-between;
@@ -168,6 +171,7 @@ defmodule Muex.Reporter.Html do
         .status-timeout { background: #8e44ad; color: white; }
         .status-equivalent { background: #7f8c8d; color: white; }
         .status-no_coverage { background: #34495e; color: white; }
+        .status-ignored { background: #95a5a6; color: white; }
         .mutation-location {
           font-family: 'Monaco', 'Courier New', monospace;
           font-size: 0.9em;
@@ -238,6 +242,10 @@ defmodule Muex.Reporter.Html do
             <div class="summary-label">No Coverage</div>
             <div class="summary-number">#{no_coverage}</div>
           </div>
+          <div class="summary-card ignored">
+            <div class="summary-label">Ignored</div>
+            <div class="summary-number">#{ignored}</div>
+          </div>
           <div class="summary-card score">
             <div class="summary-label">Mutation Score</div>
             <div class="summary-number">#{score_str}</div>
@@ -252,6 +260,7 @@ defmodule Muex.Reporter.Html do
           <button class="filter-btn" data-filter="timeout">Timeout</button>
           <button class="filter-btn" data-filter="equivalent">Equivalent</button>
           <button class="filter-btn" data-filter="no_coverage">No Coverage</button>
+          <button class="filter-btn" data-filter="ignored">Ignored</button>
         </div>
 
         <div class="mutations">
@@ -292,6 +301,7 @@ defmodule Muex.Reporter.Html do
     status = Atom.to_string(result.result)
     error = format_error_html(Map.get(result, :error))
     test_files = format_test_files_html(Map.get(result, :test_files, []))
+    ignore_reason = format_ignore_reason_html(Map.get(result, :ignore_reason))
 
     """
           <div class="mutation #{status}">
@@ -303,6 +313,7 @@ defmodule Muex.Reporter.Html do
               <div class="mutation-mutator">#{format_mutator(mutation.mutator)}</div>
               <div class="mutation-description">#{escape_html(mutation.description)}</div>
               #{test_files}
+              #{ignore_reason}
               #{error}
             </div>
           </div>
@@ -314,6 +325,14 @@ defmodule Muex.Reporter.Html do
   defp format_test_files_html(test_files) do
     """
               <div class="mutation-tests">Test files: #{escape_html(Enum.join(test_files, ", "))}</div>
+    """
+  end
+
+  defp format_ignore_reason_html(nil), do: ""
+
+  defp format_ignore_reason_html(reason) do
+    """
+              <div class="mutation-tests">Ignored: #{escape_html(reason)}</div>
     """
   end
 

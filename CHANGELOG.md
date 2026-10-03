@@ -10,8 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **`--output <file>`**: Writes the `json` or `html` report to the given file and prints a one-line summary in place of the report. Requires `--format json` or `--format html`. The path is checked before any mutant runs. Without it, `json` still prints to stdout and `html` still writes `muex-report.html`.
 - **Test Files**: Each result records the test files `mix test` was given for the mutant (`test_files` in the JSON report, "Test files" in the HTML report and under each survivor in the terminal). For a survivor these are the tests that ran and still passed.
+- **Staged Runs with `--staged`**: Tests only lines staged in Git’s index using `git diff --cached`, including the index specified by `GIT_INDEX_FILE` in a pre-commit hook. This lets muex test the staged lines that will be committed. `--staged` cannot be combined with `--since`.
+- **Ignoring Mutants**: `# muex:ignore <reason>` comments skip mutants on their line and the line directly below. A reason is required. Ignored mutants are reported with their reason and left out of the mutation score.
+
+### Changed
+- **`--since` Uses the Working Tree**: `--since <ref>` now uses `git diff --merge-base <ref>`, including uncommitted edits and matching line numbers to files on disk. On a clean working tree, the result is the same as before. Requires Git 2.30 or later.
 
 ### Fixed
+- **Git Hook Environment for Mix Subprocesses**: muex now unsets Git’s repository-local environment variables for every `mix` subprocess. This prevents project tests that create throwaway Git repositories from acting on the repository being committed to when muex runs from a hook.
+- **Coverage Export Cleanup**: Coverage-guided runs now delete each test file’s coverage export after merging it, and also clean it up when the test run fails. muex removes `cover/` if it created the directory and it is empty, while leaving files already in `cover/` alone.
 - **`--since` in a Subdirectory**: For a project that is not at the top of its git repository, such as an umbrella inside a monorepo, `--since` matched no files and generated no mutations. The diff now names files from the project root, and relative and absolute `--files` paths both match.
 - **Unknown Format**: `--format` is validated with the other options, so an unknown format is refused before the run instead of after it.
 - **HTML Write Errors**: A failed write of `muex-report.html` is reported as an error instead of being logged as generated.

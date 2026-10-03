@@ -380,9 +380,11 @@ This is useful for getting quick feedback during development or when first integ
 
 ### Incremental Runs with --since
 
-Scope mutation testing to only the lines changed on the current branch relative
-to a git ref. This uses `git diff <ref>...HEAD` (pull-request semantics) and is
-ideal for fast CI on pull requests:
+Scope mutation testing to lines changed relative to a git ref. This uses
+`git diff --merge-base <ref>` to compare the working tree with the point where
+the branch diverged from the ref. Uncommitted edits are included, and line
+numbers match the files on disk that muex mutates. On a clean working tree, the
+result is the same as before. This requires Git 2.30 or later:
 
 ```bash
 # Only mutate lines changed since main
@@ -393,6 +395,61 @@ mix muex --since origin/develop
 ```
 
 Only files and lines touched by the diff are mutated; everything else is skipped.
+
+### Staged Runs with --staged
+
+`--staged` tests only lines staged in Git's index, using `git diff --cached`. It is
+intended for pre-commit hooks. muex itself runs `git diff --cached`, and that
+Git process inherits the hook's environment, so it reads the index named by
+`GIT_INDEX_FILE`. For `git commit -a` and `git commit <paths>`, Git points the
+hook at a temporary index, which is the index being committed. So muex tests
+the staged lines that will be committed.
+
+`--staged` cannot be combined with `--since`; muex refuses the run with
+`--staged and --since cannot be used together; pick one`.
+
+For example, make `.git/hooks/pre-commit` executable:
+
+```sh
+#!/bin/sh
+exec mix muex --staged --fail-at 80
+```
+
+The existing `--fail-at` option fails the run when the mutation score is below
+the given percentage.
+
+Since `--fail-at` defaults to 80, `mix muex` fails with a reported score of
+0.0% below the threshold when there are no mutants to score and `--fail-at` is
+above 0. This happens when no staged line produces a mutant (for example, a
+docs-only commit), or when every mutant is ignored, equivalent, or invalid, so
+the hook blocks those commits too. The hook needs to handle this case, for
+example by skipping muex when no `lib` files are staged.
+
+### Ignoring Mutants with `# muex:ignore`
+
+Add a `# muex:ignore <reason>` comment at the end of a mutated line or on its
+own line directly above it. A comment covers mutants on its line and the line
+directly below. If a line has its own ignore comment, that comment’s reason
+applies to it.
+
+Ignored mutants are not run; they are reported with status `ignored` and the
+reason, and are left out of the mutation score. The reason is required: a bare
+`# muex:ignore` refuses the run and the error names each such comment by
+file and line. Only `.ex` and `.exs` files are scanned. Comments are read with
+Elixir’s parser, so text inside a string is not treated as a directive.
+
+The terminal report prints an “Ignored” count and lists each ignored mutant
+with its file and line, description, and reason. The HTML report has an
+“Ignored” card and filter and shows the reason for each ignored mutant. The
+JSON report includes an `ignored` summary count and the reason for each
+ignored mutation.
+
+```elixir
+def timeout_ms(opts) do
+  # muex:ignore only changes how long a hung test waits
+  Keyword.get(opts, :timeout, 5_000) * 2
+end
+```
 
 ### Coverage-Guided Execution
 
@@ -805,6 +862,7 @@ The report looks like this:
     "survived": 55,
     "invalid": 0,
     "timeout": 0,
+    "ignored": 0,
     "mutation_score_low": 83.9,
     "mutation_score_high": 83.9
   },
@@ -817,6 +875,7 @@ The report looks like this:
       "patch": { "before": "a + b", "after": "a - b" },
       "duration_ms": 234,
       "error": null,
+      "ignore_reason": null,
       "test_files": ["test/calculator_test.exs"]
     }
   ]
@@ -831,8 +890,12 @@ field is `null` when a mutation carries no AST (for example synthetic results).
 survivor, every one of them ran and passed, so they are where an assertion is
 missing or too weak. A killed mutant stops at its first failing test, so later
 files may not have run. The list is empty when the mutant was not judged by
-tests: it did not compile, was skipped as equivalent or uncovered, or its
-worker crashed.
+tests: it did not compile, was skipped as equivalent or uncovered, was ignored
+by a `# muex:ignore` comment, or its worker crashed.
+
+Each mutation has an `ignore_reason` field, which is `null` unless the mutant
+was ignored; for an ignored mutant it contains the comment’s reason. The JSON
+summary includes an `ignored` count.
 
 ### HTML Output
 
