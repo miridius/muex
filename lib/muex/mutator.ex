@@ -63,9 +63,10 @@ defmodule Muex.Mutator do
   @typedoc """
   Represents a single mutation with its metadata.
 
-  The `:equivalent`, `:original_ast`, `:original_line`, and `:ast_path`
-  keys are optional. `walk/3` annotates mutations with `:original_ast`,
-  `:original_line`, and `:ast_path`.
+  The `:equivalent`, `:original_ast`, `:original_line`, `:ast_path` and
+  `:function_complexity` keys are optional. `walk/3` annotates mutations with
+  `:original_ast`, `:original_line`, and `:ast_path`, and with
+  `:function_complexity` inside a function.
   When `:equivalent` is `true`, the mutation is considered semantically equivalent
   to the original and will be filtered out by the optimizer.
   """
@@ -73,6 +74,7 @@ defmodule Muex.Mutator do
           optional(:original_ast) => term(),
           optional(:original_line) => non_neg_integer(),
           optional(:ast_path) => [non_neg_integer()],
+          optional(:function_complexity) => pos_integer(),
           optional(:equivalent) => boolean(),
           ast: term(),
           mutator: module(),
@@ -212,7 +214,8 @@ defmodule Muex.Mutator do
     List of all mutations found in the AST. Each mutation is augmented with
     `:original_ast` (the matched node), `:original_line` (that node's own
     line) and `:ast_path` (that node's position in `ast`), all used
-    later during application.
+    later during application. Inside a function it also carries
+    `:function_complexity`, that function's `Muex.MutantOptimizer.complexity/1`.
   """
   @spec walk(ast :: term(), mutators :: [module()], context :: map()) :: [mutation()]
   def walk(ast, mutators, context) do
@@ -230,7 +233,7 @@ defmodule Muex.Mutator do
     if skip?(node, skip_calls) do
       []
     else
-      context = update_line(context, node)
+      context = context |> update_line(node) |> update_function(node)
 
       mutate_node(node, mutators, context, path) ++
         collect_children(node, mutators, context, skip_calls, path)
@@ -256,12 +259,21 @@ defmodule Muex.Mutator do
   # line (`x + 1 + (x + 1)`), and only its position tells the copies apart.
   # `Muex.Compiler` replaces the node at that position, and falls back to
   # matching on `:original_line` when there is none.
+  #
+  # `:function_complexity` is the enclosing function's, for
+  # `Muex.MutantOptimizer`; code outside any function has none.
   defp annotate(mutation, node, context, path) do
     mutation
     |> Map.put(:original_ast, node)
     |> Map.put(:original_line, Map.get(context, :line) || 0)
     |> Map.put(:ast_path, Enum.reverse(path))
+    |> put_function_complexity(context)
   end
+
+  defp put_function_complexity(mutation, %{function_complexity: complexity}),
+    do: Map.put(mutation, :function_complexity, complexity)
+
+  defp put_function_complexity(mutation, _context), do: mutation
 
   # The position `steps` below `path`, with `steps` written root first.
   defp below(path, steps), do: Enum.reverse(steps, path)
@@ -398,4 +410,10 @@ defmodule Muex.Mutator do
   end
 
   defp update_line(context, _node), do: context
+
+  defp update_function(context, {def, _meta, [_head | _]} = node)
+       when def in [:def, :defp, :defmacro, :defmacrop],
+       do: Map.put(context, :function_complexity, Muex.MutantOptimizer.complexity(node))
+
+  defp update_function(context, _node), do: context
 end

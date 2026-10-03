@@ -408,6 +408,17 @@ the staged lines that will be committed.
 `--staged` cannot be combined with `--since`; muex refuses the run with
 `--staged and --since cannot be used together; pick one`.
 
+`--staged` uses `git diff --cached` (including `GIT_INDEX_FILE` in a pre-commit
+hook) to select staged lines, but muex mutates and tests files on disk. If a
+file in the run has unstaged changes on top of its staged changes, muex refuses
+the run: it would test the disk version rather than the version to be committed,
+and staged line numbers may not match. The error starts with
+`--staged: these files have unstaged changes on top of their staged ones, so
+they cannot be tested as they will be committed; stage or stash them:` and then
+lists the affected paths in sorted, comma-separated order. Stage or stash those
+changes to proceed. Files with only unstaged changes are not in the run and do
+not trigger this refusal.
+
 For example, make `.git/hooks/pre-commit` executable:
 
 ```sh
@@ -436,7 +447,10 @@ Ignored mutants are not run; they are reported with status `ignored` and the
 reason, and are left out of the mutation score. The reason is required: a bare
 `# muex:ignore` refuses the run and the error names each such comment by
 file and line. Only `.ex` and `.exs` files are scanned. Comments are read with
-Elixir’s parser, so text inside a string is not treated as a directive.
+Elixir’s parser, so text inside a string is not treated as a directive. Under
+`--coverage-guided`, ignored mutants are set aside before coverage is
+classified, so an ignored mutant that no test executes is reported as
+`ignored`, not `no_coverage`.
 
 The terminal report prints an “Ignored” count and lists each ignored mutant
 with its file and line, description, and reason. The HTML report has an
@@ -463,7 +477,8 @@ mix muex --coverage-guided
 ```
 
 This can dramatically cut runtime on large suites at the cost of an up-front
-coverage pass.
+coverage pass. `:cover`'s notices about the coverage data it merges during that
+pass are printed only with `--verbose`.
 
 ### Equivalent Mutant Handling
 

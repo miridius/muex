@@ -64,6 +64,88 @@ defmodule Muex.StagedTest do
     end)
   end
 
+  # The disk, not the index, is mutated and tested, so a file with unstaged edits
+  # on top of staged ones would not be tested as committed.
+  test "--staged refuses a file with unstaged changes on top of staged ones",
+       %{tmp_dir: tmp_dir} do
+    write_tiny_project!(tmp_dir)
+    File.write!(Path.join(tmp_dir, "lib/other.ex"), "defmodule Other do\nend\n")
+    git!(["add", "."], tmp_dir)
+    git!(["commit", "-q", "-m", "init"], tmp_dir)
+
+    write_tiny_lib!(tmp_dir, "a * 3")
+    git!(["add", "lib/tiny.ex"], tmp_dir)
+    write_tiny_lib!(tmp_dir, "a * 4")
+    File.write!(Path.join(tmp_dir, "lib/other.ex"), "defmodule Other do\n  # x\nend\n")
+
+    File.cd!(tmp_dir, fn ->
+      assert {:error, reason} = Muex.run(config!(tmp_dir))
+      assert reason =~ "unstaged changes on top of their staged ones"
+      assert reason =~ "lib/tiny.ex"
+      refute reason =~ "lib/other.ex"
+    end)
+  end
+
+  # An unreachable seam is exactly the code no test executes. Its mutants are
+  # ignored before coverage could call them no_coverage.
+  test "an ignored line no test executes is ignored, not no_coverage, under --coverage-guided",
+       %{tmp_dir: tmp_dir} do
+    write_tiny_project!(tmp_dir)
+    git!(["add", "."], tmp_dir)
+    git!(["commit", "-q", "-m", "init"], tmp_dir)
+
+    File.write!(Path.join(tmp_dir, "lib/seam.ex"), """
+    defmodule Seam do
+      # muex:ignore unreachable I/O seam
+      def io(x), do: x + 1
+      def other(x), do: x - 1
+    end
+    """)
+
+    git!(["add", "."], tmp_dir)
+
+    File.cd!(tmp_dir, fn ->
+      capture_io(fn ->
+        assert {:ok, %{results: results}} = Muex.run(config!(tmp_dir, coverage_guided: true))
+        by_line = Enum.group_by(results, & &1.mutation.location.line, & &1.result)
+
+        assert [_ | _] = by_line[3]
+        assert Enum.all?(by_line[3], &(&1 == :ignored))
+        assert [_ | _] = by_line[4]
+        assert Enum.all?(by_line[4], &(&1 == :no_coverage))
+      end)
+    end)
+  end
+
+  # A clause deletion is reported on that clause's line, not the `case` line, so
+  # an edit to one clause scopes in its deletion and only its.
+  test "--staged runs the deletion of the one case clause changed", %{tmp_dir: tmp_dir} do
+    write_tiny_project!(tmp_dir)
+    write_pick!(tmp_dir, ":other")
+
+    File.write!(Path.join(tmp_dir, "test/pick_test.exs"), """
+    defmodule PickTest do
+      use ExUnit.Case
+      test "pick/1", do: assert(Pick.pick(2) == :many)
+    end
+    """)
+
+    git!(["add", "."], tmp_dir)
+    git!(["commit", "-q", "-m", "init"], tmp_dir)
+
+    write_pick!(tmp_dir, ":many")
+    git!(["add", "."], tmp_dir)
+
+    File.cd!(tmp_dir, fn ->
+      capture_io(fn ->
+        assert {:ok, %{results: results}} =
+                 Muex.run(config!(tmp_dir, mutators: "case_clause"))
+
+        assert [%{result: :killed, mutation: %{location: %{line: 5}}}] = results
+      end)
+    end)
+  end
+
   # A plain `git commit` hands its hook GIT_INDEX_FILE=.git/index. git reads a
   # relative path from the top of the work tree, whichever directory it runs in.
   test "changed_staged/1 reads a relative GIT_INDEX_FILE from any directory",
@@ -192,17 +274,20 @@ defmodule Muex.StagedTest do
   defp config!(project, opts \\ []) do
     {:ok, config} =
       Config.from_opts(
-        [
-          files: "lib",
-          test_paths: "test",
-          project_root: project,
-          mutators: "arithmetic",
-          concurrency: 1,
-          timeout: 60_000,
-          no_filter: true,
-          no_optimize: true,
-          staged: true
-        ] ++ opts
+        Keyword.merge(
+          [
+            files: "lib",
+            test_paths: "test",
+            project_root: project,
+            mutators: "arithmetic",
+            concurrency: 1,
+            timeout: 60_000,
+            no_filter: true,
+            no_optimize: true,
+            staged: true
+          ],
+          opts
+        )
       )
 
     config
@@ -265,6 +350,19 @@ defmodule Muex.StagedTest do
     """)
 
     root
+  end
+
+  defp write_pick!(root, other) do
+    File.write!(Path.join(root, "lib/pick.ex"), """
+    defmodule Pick do
+      def pick(x) do
+        case x do
+          1 -> :one
+          _ -> #{other}
+        end
+      end
+    end
+    """)
   end
 
   # `above_double`, when given, is a line put between add/2 and double/1.

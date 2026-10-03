@@ -36,9 +36,9 @@ Our goal: Reduce mutants by 50-70% while maintaining comparable mutation scores.
 
 **Problem**: Simple code (getters, trivial guards) generates many mutations but is typically well-tested. Complex code with branching logic is more likely to contain subtle bugs.
 
-**Approach**: Calculate cyclomatic complexity approximation:
+**Approach**: Calculate cyclomatic complexity for the function containing the mutation (`def`, `defp`, `defmacro`, or `defmacrop`); for a mutation outside a function, use the mutated node itself:
 ```
-complexity = count_decision_points(ast) + 1
+complexity = count_decision_points(function_ast_or_mutated_node) + 1
 
 where decision_points include:
 - if, case, cond, unless

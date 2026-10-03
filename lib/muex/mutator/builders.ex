@@ -99,9 +99,18 @@ defmodule Muex.Mutator.Builders do
     |> Enum.with_index()
     |> Enum.map(fn {position, nth} ->
       remaining = List.delete_at(items, position)
-      build(mutator, rebuild.(remaining), "delete clause #{nth + 1} of #{total}", context, line)
+      # Reported on the deleted clause's own line (its `->` or `<-`), so a
+      # diff of that clause scopes it in; `line` is the fallback.
+      clause_line = items |> Enum.at(position) |> clause_line(line)
+      description = "delete clause #{nth + 1} of #{total}"
+      build(mutator, rebuild.(remaining), description, context, clause_line)
     end)
   end
+
+  defp clause_line({_form, meta, _args}, fallback) when is_list(meta),
+    do: Keyword.get(meta, :line, fallback)
+
+  defp clause_line(_clause, fallback), do: fallback
 
   defp line(meta), do: Keyword.get(meta, :line, 0)
 end

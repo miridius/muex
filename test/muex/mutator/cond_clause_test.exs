@@ -66,4 +66,17 @@ defmodule Muex.Mutator.CondClauseTest do
       assert Muex.Language.Elixir in CondClause.supported_languages()
     end
   end
+
+  test "reports each deletion on the deleted clause's line" do
+    ast =
+      Code.string_to_quoted!("""
+      cond do
+        a > b -> :first
+        true -> :second
+      end
+      """)
+
+    lines = ast |> CondClause.mutate(%{file: "lib/m.ex"}) |> Enum.map(& &1.location.line)
+    assert lines == [2, 3]
+  end
 end

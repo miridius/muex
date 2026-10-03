@@ -74,5 +74,20 @@ defmodule Muex.Mutator.CaseClauseTest do
     test "supports Elixir" do
       assert Muex.Language.Elixir in CaseClause.supported_languages()
     end
+
+    # A diff that touches only one clause scopes in that clause's deletion, and
+    # one that touches only the `case` line scopes in none.
+    test "reports each deletion on the deleted clause's line" do
+      ast =
+        Code.string_to_quoted!("""
+        case x do
+          1 -> :one
+          _ -> :other
+        end
+        """)
+
+      lines = ast |> CaseClause.mutate(%{file: "lib/m.ex"}) |> Enum.map(& &1.location.line)
+      assert lines == [2, 3]
+    end
   end
 end
