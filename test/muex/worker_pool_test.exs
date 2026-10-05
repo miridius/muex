@@ -96,8 +96,9 @@ defmodule Muex.WorkerPoolTest do
       Process.register(self(), __MODULE__.BlockingAdapter)
       run = Task.async(fn -> run_with_adapter(tmp_dir, __MODULE__.BlockingAdapter, 2, 2) end)
 
-      assert_receive {:unparsing, first}
-      assert_receive {:unparsing, second}
+      # Building the sandboxes comes first and can take seconds.
+      assert_receive {:unparsing, first}, 10_000
+      assert_receive {:unparsing, second}, 10_000
       Enum.each([first, second], &send(&1, :go))
 
       assert [%{result: :invalid}, %{result: :invalid}] = Task.await(run)

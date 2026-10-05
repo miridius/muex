@@ -143,12 +143,12 @@ defmodule Muex.CoverageTest do
           )
         end)
 
-      assert_receive {:running, "a_test.exs", a}
-      assert_receive {:running, "b_test.exs", b}
+      assert_receive {:running, "a_test.exs", a}, 10_000
+      assert_receive {:running, "b_test.exs", b}, 10_000
       refute_receive {:running, "c_test.exs", _}
 
       send(a, :go)
-      assert_receive {:running, "c_test.exs", c}
+      assert_receive {:running, "c_test.exs", c}, 10_000
 
       Enum.each([b, c], &send(&1, :go))
       assert Task.await(collecting) == Coverage.new()
