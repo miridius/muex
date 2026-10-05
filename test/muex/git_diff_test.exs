@@ -113,7 +113,7 @@ defmodule Muex.GitDiffTest do
 
     # A hook (pre-commit) exports GIT_DIR, GIT_INDEX_FILE and friends, which would send these
     # scratch repositories' commands to the hook's repository.
-    setup %{tmp_dir: dir} do
+    defp init_repo(%{tmp_dir: dir}) do
       saved =
         for var <- ~w(GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX),
             do: {var, System.get_env(var)}
@@ -132,6 +132,8 @@ defmodule Muex.GitDiffTest do
       git!(["config", "user.name", "Test"], dir)
       %{dir: dir}
     end
+
+    setup :init_repo
 
     test "returns the lines modified on the branch since a ref", %{dir: dir} do
       file = Path.join(dir, "calc.ex")
@@ -230,12 +232,7 @@ defmodule Muex.GitDiffTest do
   describe "changed_staged/1 (real git)" do
     @describetag :tmp_dir
 
-    setup %{tmp_dir: dir} do
-      git!(["init", "-q"], dir)
-      git!(["config", "user.email", "t@example.com"], dir)
-      git!(["config", "user.name", "Test"], dir)
-      %{dir: dir}
-    end
+    setup :init_repo
 
     test "returns only the staged lines", %{dir: dir} do
       staged = Path.join(dir, "staged.ex")

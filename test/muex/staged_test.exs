@@ -11,11 +11,14 @@ defmodule Muex.StagedTest do
   @moduletag :tmp_dir
   @moduletag timeout: 180_000
 
+  # Clears the hook variables before touching git, so a run from a hook does
+  # not send the scratch repository's commands to the hook's repository.
   setup %{tmp_dir: tmp_dir} do
+    saved = Map.new(Muex.GitEnv.local_vars(), &{&1, System.get_env(&1)})
+    Enum.each(Map.keys(saved), &System.delete_env/1)
     git!(["init", "-q"], tmp_dir)
     git!(["config", "user.email", "t@example.com"], tmp_dir)
     git!(["config", "user.name", "Test"], tmp_dir)
-    saved = Map.new(Muex.GitEnv.local_vars(), &{&1, System.get_env(&1)})
 
     on_exit(fn ->
       Enum.each(saved, fn
