@@ -120,7 +120,9 @@ defmodule Muex.Coverage do
   end
 
   defp run_with_coverage(test_file, cd) do
-    name = "muex_cov_#{System.unique_integer([:positive])}"
+    # The export lands in the project's own cover/ dir, which another muex
+    # process on the same project shares, so the OS pid keeps the names apart.
+    name = "muex_cov_#{System.pid()}_#{System.unique_integer([:positive])}"
 
     case System.cmd("mix", ["test", test_file, "--cover", "--export-coverage", name],
            cd: cd,
