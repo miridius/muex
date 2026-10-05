@@ -11,8 +11,22 @@ defmodule Muex.TestRunner.PortTest do
                match?({:error, _}, result)
     end
 
-    test "handles empty test file list" do
-      result = PortRunner.run_tests([], timeout_ms: 10_000)
+    # An empty list runs the whole suite of the project in :cd, so the run uses
+    # a project with no tests rather than muex's own, which outgrows the test
+    # timeout.
+    @tag :tmp_dir
+    test "handles empty test file list", %{tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "mix.exs"), """
+      defmodule MuexEmptyProject.MixProject do
+        use Mix.Project
+        def project, do: [app: :muex_empty_project, version: "0.1.0"]
+      end
+      """)
+
+      File.mkdir_p!(Path.join(tmp_dir, "test"))
+      File.write!(Path.join([tmp_dir, "test", "test_helper.exs"]), "ExUnit.start()\n")
+
+      result = PortRunner.run_tests([], timeout_ms: 10_000, cd: tmp_dir)
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
