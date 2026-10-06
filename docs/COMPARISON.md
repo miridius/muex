@@ -10,7 +10,7 @@ Muex, Darwin, and Exavier are all mutation testing tools for the BEAM ecosystem.
 
 ### Muex
 - **Version**: 0.5.0 (March 2026, 8 published releases)
-- **Elixir requirement**: ~> 1.14
+- **Elixir requirement**: ~> 1.16
 - **License**: MIT
 - **Hex downloads**: 304 all-time
 - **GitHub stars**: New project
@@ -19,7 +19,7 @@ Muex, Darwin, and Exavier are all mutation testing tools for the BEAM ecosystem.
 - **Dependencies**: jason ~> 1.4 (runtime), plus dev/test tooling (credo, dialyxir, excoveralls, ex_doc)
 - **LOC (lib)**: ~3,900
 - **LOC (tests)**: ~2,300 (204 passing tests)
-- **CI**: GitHub Actions with matrix (Elixir 1.14-1.16, OTP 25-26)
+- **CI**: GitHub Actions with matrix (Elixir 1.18 and 1.20, OTP 27 and 29)
 
 ### Darwin
 - **Version**: 0.1.0 (only version ever published)
@@ -283,7 +283,7 @@ Historical context: Exavier's README shows an example of 22 tests producing 27.2
 - 204 passing tests covering all major components
 - Test coverage for: Config, DependencyAnalyzer, Loader, all 6 mutators, Reporter, JSON Reporter, TestRunner.Port, WorkerPool, Language.Elixir, integration tests
 - Quality pipeline: `mix quality` runs formatter + credo --strict + dialyzer
-- CI matrix: Elixir 1.14-1.16, OTP 25-26
+- CI matrix: Elixir 1.18 and 1.20, OTP 27 and 29
 - Typespecs on all public functions
 - `@moduledoc` and `@doc` on all modules and public functions
 - Documentation published on HexDocs with guides (Installation, Usage, Mutation Optimization)

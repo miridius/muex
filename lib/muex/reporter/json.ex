@@ -85,7 +85,17 @@ defmodule Muex.Reporter.Json do
       },
       mutations: Enum.map(results, &format_mutation/1)
     }
+    |> replace_invalid_utf8()
   end
+
+  # Jason raises on invalid UTF-8, which test output and string literals can
+  # hold, and that would lose the whole report.
+  defp replace_invalid_utf8(map) when is_map(map),
+    do: Map.new(map, fn {key, value} -> {key, replace_invalid_utf8(value)} end)
+
+  defp replace_invalid_utf8(list) when is_list(list), do: Enum.map(list, &replace_invalid_utf8/1)
+  defp replace_invalid_utf8(string) when is_binary(string), do: String.replace_invalid(string)
+  defp replace_invalid_utf8(other), do: other
 
   defp format_mutation(result) do
     mutation = result.mutation

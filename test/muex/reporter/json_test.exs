@@ -204,6 +204,21 @@ defmodule Muex.Reporter.JsonTest do
       assert report["summary"]["killed"] == 1
     end
 
+    test "replaces invalid UTF-8 so the report is still written", %{tmp_dir: tmp_dir} do
+      output_file = Path.join(tmp_dir, "report.json")
+      mutation = %{test_mutation("lib/test.ex", 1) | description: "Literal: " <> <<0xE9>>}
+
+      results = [
+        %{result: :killed, mutation: mutation, duration_ms: 0, error: "killed by: " <> <<0xE9>>}
+      ]
+
+      assert :ok = Json.generate(results, output_file: output_file)
+
+      [decoded] = output_file |> File.read!() |> Jason.decode!() |> Map.fetch!("mutations")
+      assert decoded["error"] == "killed by: �"
+      assert decoded["description"] == "Literal: �"
+    end
+
     test "uses default filename when not specified", %{tmp_dir: tmp_dir} do
       File.cd!(tmp_dir, fn ->
         results = [

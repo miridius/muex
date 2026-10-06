@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`--since` Uses the Working Tree**: `--since <ref>` now uses `git diff --merge-base <ref>`, including uncommitted edits and matching line numbers to files on disk. On a clean working tree, the result is the same as before. Requires Git 2.30 or later.
+- **Elixir 1.16 Required**: muex now requires Elixir 1.16 or later, up from 1.14.
 
 ### Fixed
 - **Git Hook Environment for Mix Subprocesses**: muex now unsets Git’s repository-local environment variables for every `mix` subprocess. This prevents project tests that create throwaway Git repositories from acting on the repository being committed to when muex runs from a hook.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`--since` in a Subdirectory**: For a project that is not at the top of its git repository, such as an umbrella inside a monorepo, `--since` matched no files and generated no mutations. The diff now names files from the project root, and relative and absolute `--files` paths both match.
 - **Unknown Format**: `--format` is validated with the other options, so an unknown format is refused before the run instead of after it.
 - **HTML Write Errors**: A failed write of `muex-report.html` is reported as an error instead of being logged as generated.
+- **Invalid UTF-8 in the JSON Report**: A report string holding invalid UTF-8, such as test output or a mutated string literal, made the JSON reporter raise, and the run's report was lost. Each invalid byte sequence is now replaced with U+FFFD (`�`).
 - **Docs**: README and USAGE said `--format json` writes `muex-report.json`; it prints to stdout. The CI examples now pass `--output muex-report.json`, so the artifact they upload exists.
 - **Tests That Never Ran**: When every test chosen for a mutant was excluded, skipped or invalid, `mix test` exited 0 with `Result: 0 tests` (or `N tests, 0 failures, N excluded` before Elixir 1.20) and the mutant was scored survived. It is now `:no_coverage`, with the summary in its `error`, and the terminal says the chosen tests ran none. The umbrella baseline refuses the run when its tests ran none, instead of reporting green.
 - **Failures Missed in the Summary**: Before Elixir 1.20 only the first `N tests, M failures` line was read, so in an umbrella a failure in any app after the first was scored survived. A `setup_all` crash, which counts its tests as invalid rather than failed and exits non-zero, was also scored survived. Failures are now summed over every summary, a non-zero exit with no failure counted is a kill, and ANSI colours are removed before the summary is read.
