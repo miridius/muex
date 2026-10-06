@@ -30,6 +30,32 @@ defmodule Muex.TestRunner.PortTest do
 
       assert match?({:ok, _}, result) or match?({:error, _}, result)
     end
+
+    @tag :tmp_dir
+    test "replaces invalid UTF-8 in the output", %{tmp_dir: tmp_dir} do
+      File.write!(Path.join(tmp_dir, "mix.exs"), """
+      defmodule MuexInvalidUtf8Project.MixProject do
+        use Mix.Project
+        def project, do: [app: :muex_invalid_utf8_project, version: "0.1.0"]
+      end
+      """)
+
+      File.mkdir_p!(Path.join(tmp_dir, "test"))
+      File.write!(Path.join([tmp_dir, "test", "test_helper.exs"]), "ExUnit.start()\n")
+
+      File.write!(Path.join([tmp_dir, "test", "byte_test.exs"]), """
+      defmodule ByteTest do
+        use ExUnit.Case
+        test "writes a raw byte", do: System.shell("printf '\\\\351' >&2")
+      end
+      """)
+
+      assert {:ok, %{output: output}} =
+               PortRunner.run_tests([], timeout_ms: 30_000, cd: tmp_dir)
+
+      assert String.valid?(output)
+      assert output =~ "�"
+    end
   end
 
   describe "compile error classification" do

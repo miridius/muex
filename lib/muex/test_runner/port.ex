@@ -127,7 +127,8 @@ defmodule Muex.TestRunner.Port do
 
       {^port, {:exit_status, exit_code}} ->
         safe_close(port)
-        {:ok, acc, exit_code}
+        # Not per chunk: a chunk boundary can split a valid character.
+        {:ok, String.replace_invalid(acc), exit_code}
 
       _msg ->
         collect_output(port, acc, timeout_ms)
