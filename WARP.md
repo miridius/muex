@@ -273,7 +273,7 @@ Mutates conditional expressions:
 ## CI/CD
 
 GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
-- Matrix tests across Elixir 1.14-1.16 and OTP 25-26
+- Matrix tests across Elixir 1.18/1.20 and OTP 27/29
 - Quality checks: format validation, credo, dialyzer
 - Test coverage with coveralls
 
@@ -288,7 +288,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
 
 ## Project Configuration
 
-- Elixir version: ~> 1.14
+- Elixir version: ~> 1.15
 - Dependencies: credo, dialyxir, excoveralls, ex_doc (all dev/test/ci only)
 - Dialyzer PLT: `.dialyzer/dialyzer.plt`
 - Test paths: `elixirc_paths(:test)` includes `test/support`
