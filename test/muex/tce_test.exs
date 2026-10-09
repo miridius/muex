@@ -72,6 +72,17 @@ defmodule Muex.TceTest do
 
       refute Tce.equivalent?(a, b)
     end
+
+    test "a literal that differs only as integer vs float or in the sign of zero is not equivalent" do
+      # Both sides constant-fold to literals, which `==` would call equal.
+      int = quoted("defmodule M do def f, do: {:ok, 4 * 1} end")
+      float = quoted("defmodule M do def f, do: {:ok, 4 / 1} end")
+      refute Tce.equivalent?(int, float)
+
+      neg_zero = quoted("defmodule M do def f, do: -0.0 end")
+      zero = quoted("defmodule M do def f, do: 0.0 end")
+      refute Tce.equivalent?(neg_zero, zero)
+    end
   end
 
   describe "equivalent_source?/2 — mutated source vs original AST" do

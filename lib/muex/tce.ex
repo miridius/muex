@@ -36,7 +36,7 @@ defmodule Muex.Tce do
       probe = probe_alias()
 
       case {fingerprint(module_ast_a, probe), fingerprint(module_ast_b, probe)} do
-        {{:ok, a}, {:ok, b}} -> a == b
+        {{:ok, a}, {:ok, b}} -> a === b
         _ -> false
       end
     else
