@@ -115,6 +115,50 @@ defmodule Muex.Mutator.FunctionCallTest do
       assert [] = FunctionCall.mutate(ast_fn, context)
       assert [] = FunctionCall.mutate(ast_macro, context)
     end
+
+    test "does not mutate map literals" do
+      ast = quote(do: %{a: 1, b: 2})
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
+
+    test "does not mutate struct literals" do
+      ast = quote(do: %URI{host: "h", path: "p"})
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
+
+    test "does not mutate :: type operators" do
+      ast = {:"::", [line: 1], [{:x, [], nil}, {:binary, [], nil}]}
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
+
+    test "still mutates calls nested in interpolations and map literals" do
+      ast =
+        Code.string_to_quoted!(~S"""
+        def f(x), do: {"v#{x}", %{a: g(1, 2)}}
+        """)
+
+      descriptions =
+        ast
+        |> Muex.Mutator.walk([FunctionCall], %{file: "test.ex"})
+        |> Enum.map(& &1.description)
+
+      refute Enum.any?(descriptions, &String.contains?(&1, "::()"))
+      refute Enum.any?(descriptions, &String.contains?(&1, "%{}()"))
+      assert "FunctionCall: remove g() call" in descriptions
+      assert "FunctionCall: swap arguments in g()" in descriptions
+    end
   end
 
   describe "mutate/2 - remote function calls" do

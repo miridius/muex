@@ -131,7 +131,10 @@ defmodule Muex.Mutator.FunctionCall do
       :->,
       :<-,
       :when,
-      :fn
+      :fn,
+      :"::",
+      :%{},
+      :%
     ]
   end
 
